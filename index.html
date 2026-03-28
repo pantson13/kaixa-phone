@@ -136,7 +136,6 @@
     pointer-events:none;
   }
 
-  /* 当前选中的按钮 */
   .hit.selected{
     border:2px solid #ffe600;
     box-shadow:0 0 0 2px rgba(0,0,0,.55) inset, 0 0 10px rgba(255,230,0,.7);
@@ -166,15 +165,12 @@
       <div class="phone" id="phone">
         <img src="assets/ui.jpg" alt="KAIXA UI" id="ui"/>
 
-        <!-- ENTER -->
         <button class="hit" id="btnEnter" aria-label="ENTER" data-btn="enter"></button>
 
-        <!-- 第二行 -->
         <button class="hit" id="btnRing"  aria-label="铃声"   data-btn="ring"></button>
         <button class="hit" id="btnClear" aria-label="クリア" data-btn="clear"></button>
         <button class="hit" id="btnStop"  aria-label="停止"   data-btn="stop"></button>
 
-        <!-- 数字键 -->
         <button class="hit" data-k="1" aria-label="1" data-btn="1"></button>
         <button class="hit" data-k="2" aria-label="2" data-btn="2"></button>
         <button class="hit" data-k="3" aria-label="3" data-btn="3"></button>
@@ -195,12 +191,12 @@
 
     <div class="tip">
       首次点击屏幕任意位置只会播放 open phone，播完后才开放其他交互。<br>
+      打开 F12 看 Console，可以看到 open phone 是否加载成功。<br>
       点击任意按钮可选中。方向键：移动选中按钮　Alt + 方向键：更细步进<br>
       [ / ]：调宽　- / =：调高　P：在控制台输出当前按钮参数
     </div>
   </div>
 
-  <!-- 开机锁层：开机音播放完之前拦住所有按钮 -->
   <div class="boot-lock" id="bootLock" aria-hidden="true"></div>
 
 <script>
@@ -222,11 +218,10 @@
     combo3821: 'assets/3821',
     weaponHit: 'assets/weaponHit'
   };
-  const EXT = ['.mp4'];
-  const urlMap = {};
 
   let ac = null, master = null;
   const buffers = new Map();
+  const urlMap = {};
 
   function ctx(){
     if(ac) return ac;
@@ -240,39 +235,50 @@
 
   async function resolveUrl(base){
     if(urlMap[base]) return urlMap[base];
-    for(const ext of EXT){
-      const u = `${base}${ext}`;
-      try{
-        const r = await fetch(u, {method:'HEAD', cache:'no-store'});
-        if(r.ok){
-          urlMap[base] = u;
-          return u;
-        }
-      }catch{}
-    }
-    return null;
+    const u = `${base}.mp4`;
+    urlMap[base] = u;
+    return u;
   }
 
   async function load(key){
     if(buffers.has(key)) return buffers.get(key);
+
     const url = await resolveUrl(BASE[key]);
-    if(!url) return null;
-    const res = await fetch(url, {cache:'no-store'});
-    if(!res.ok) return null;
-    const arr = await res.arrayBuffer();
-    const b = await ctx().decodeAudioData(arr);
-    buffers.set(key, b);
-    return b;
+    if(!url){
+      console.error('[load] URL not found:', key);
+      return null;
+    }
+
+    try{
+      const res = await fetch(url, {cache:'no-store'});
+      if(!res.ok){
+        console.error('[load] fetch failed:', key, url, res.status);
+        return null;
+      }
+
+      const arr = await res.arrayBuffer();
+      const b = await ctx().decodeAudioData(arr);
+      buffers.set(key, b);
+      console.log('[load] success:', key, url);
+      return b;
+    }catch(err){
+      console.error('[load] decode failed:', key, url, err);
+      return null;
+    }
   }
 
   function play(key,{loop=false}={}){
     const b = buffers.get(key);
-    if(!b) return null;
+    if(!b){
+      console.warn('[play] buffer missing:', key);
+      return null;
+    }
     const s = ctx().createBufferSource();
     s.buffer = b;
     s.loop = !!loop;
     s.connect(master);
     s.start();
+    console.log('[play] start:', key);
     return s;
   }
 
@@ -282,7 +288,6 @@
     }
   }
 
-  /* ------------ 规则/状态 ------------ */
   const TRANSFORM_CODE = '913';
   let buf = '';
   let transformed = false;
@@ -291,7 +296,6 @@
   let ringNode = null;
   let standNode = null;
 
-  // 开机锁
   let booting = true;
   let bootPlayed = false;
 
@@ -313,16 +317,23 @@
   async function startBoot(){
     if(bootPlayed) return;
     bootPlayed = true;
+    console.log('[boot] start');
 
     const c = ctx();
     try{
       if(c.state === 'suspended') await c.resume();
-    }catch{}
+    }catch(err){
+      console.error('[boot] audioContext resume failed:', err);
+    }
 
-    await load('openPhone');
+    const bootBuffer = await load('openPhone');
+    console.log('[boot] openPhone buffer:', bootBuffer);
+
     const s = play('openPhone');
+    console.log('[boot] openPhone source:', s);
 
     const done = () => {
+      console.log('[boot] done');
       booting = false;
       bootLock.style.display = 'none';
       preloadRest();
@@ -331,6 +342,7 @@
     if(s){
       s.onended = done;
     }else{
+      console.warn('[boot] openPhone did not start, fallback unlock after 1200ms');
       setTimeout(done, 1200);
     }
   }
@@ -454,7 +466,6 @@
     else done();
   }
 
-  /* ------------ 绑定 ------------ */
   document.querySelectorAll('.hit[data-k]').forEach(b => {
     const k = b.dataset.k;
     if(k === '*') b.addEventListener('click', onStar);
@@ -466,7 +477,6 @@
   document.getElementById('btnStop').addEventListener('click', ringStop);
   document.getElementById('btnClear').addEventListener('click', onClear);
 
-  /* ------------ 独立摆放 ------------ */
   function getPct(name){
     return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
   }
@@ -580,7 +590,6 @@
     }
   });
 
-  // 默认选中 ENTER
   const enter = document.querySelector('[data-btn="enter"]');
   if (enter) selectButton(enter);
 })();
