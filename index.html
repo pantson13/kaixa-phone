@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+<title>KAIXA Phone</title>
+<style>
+  :root{
+    --ui: url('assets/ui.jpg');
+
+    /* ===== 位置参数：已按你截图先整体右移、下移、略缩小 ===== */
+    --enter-left: 27.4%;
+    --enter-top:  52.2%;
+    --enter-w:    23.2%;
+    --enter-h:    3.7%;
+
+    --row2-left:  27.2%;
+    --row2-top:   58.9%;
+    --key-w:      13.1%;
+    --key-h:      4.15%;
+    --gap-x:      3.45%;
+    --gap-y:      1.05%;
+
+    --bg:#000;
+    --fg:#fff;
+  }
+
+  *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent }
+  html,body{ height:100%; margin:0; background:var(--bg); color:var(--fg); }
+  body{ display:flex; justify-content:center; }
+  .wrap{ width:min(94vw, 520px); margin:12px auto 48px; }
+
+  .phone{ position:relative; width:100%; }
+  .phone img{ width:100%; height:auto; display:block; user-select:none; pointer-events:none; }
+
+  .hit{
+    position:absolute; border:none; outline:none; background:transparent;
+    touch-action:manipulation; user-select:none; -webkit-user-select:none;
+    transform-origin:center;
+  }
+  .hit:active{ transform:scale(.98); }
+
+  /* ===== 调试描边：对齐OK后，把这两段注释掉即可 ===== */
+  .hit{ background:rgba(255,0,0,.22); border:1.5px dashed #00ffff; border-radius:8px; }
+  .hit::after{
+    content: attr(aria-label);
+    position:absolute; left:4px; top:2px; font: 600 10px/1 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    color:#00ffff; text-shadow:0 0 3px #000; pointer-events:none;
+  }
+  /* =============================================== */
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="phone" id="phone">
+      <img src="assets/ui.jpg" alt="KAIXA UI" id="ui"/>
+
+      <!-- ENTER -->
+      <button class="hit" id="btnEnter" aria-label="ENTER"></button>
+
+      <!-- 第二行：铃声 / クリア / 停止 -->
+      <button class="hit" id="btnRing"  aria-label="铃声"></button>
+      <button class="hit" id="btnClear" aria-label="クリア"></button>
+      <button class="hit" id="btnStop"  aria-label="停止"></button>
+
+      <!-- 数字键 1~9、*0# -->
+      <button class="hit" data-k="1" aria-label="1"></button>
+      <button class="hit" data-k="2" aria-label="2"></button>
+      <button class="hit" data-k="3" aria-label="3"></button>
+
+      <button class="hit" data-k="4" aria-label="4"></button>
+      <button class="hit" data-k="5" aria-label="5"></button>
+      <button class="hit" data-k="6" aria-label="6"></button>
+
+      <button class="hit" data-k="7" aria-label="7"></button>
+      <button class="hit" data-k="8" aria-label="8"></button>
+      <button class="hit" data-k="9" aria-label="9"></button>
+
+      <button class="hit" data-k="*" aria-label="*"></button>
+      <button class="hit" data-k="0" aria-label="0"></button>
+      <button class="hit" data-k="#" aria-label="#"></button>
+    </div>
+  </div>
+
+<script>
+(() => {
+  /* ------------ 资源（自动匹配 .m4a/.mp3/.wav/.mp4） ------------ */
+  const BASE = {
+    openPhone: 'assets/open phone',
+    ring:      'assets/ring',
+    enter:     'assets/enter',
+    key1:      'assets/key1',
+    key5_2:    'assets/key5_2',
+    key5_3:    'assets/key5_3',
+    standBy:   'assets/stand by',
+    complete:  'assets/complete',
+    error:     'assets/error',
+    ready:     'assets/ready',
+    exceed:    'assets/exceed charge',
+    release:   'assets/release',
+    combo3821: 'assets/3821',
+    weaponHit: 'assets/weaponHit'
+  };
+  const EXT = ['.m4a','.mp3','.wav','.mp4'];
+  const urlMap = {};
+
+  let ac=null, master=null;
+  const buffers=new Map();
+
+  function ctx(){
+    if(ac) return ac;
+    const C=window.AudioContext||window.webkitAudioContext;
+    ac=new C({latencyHint:'interactive'});
+    master=ac.createGain();
+    master.gain.value=1;
+    master.connect(ac.destination);
+    return ac;
+  }
+
+  async function resolveUrl(base){
+    if(urlMap[base]) return urlMap[base];
+    for(const ext of EXT){
+      const u = `${base}${ext}`;
+      try{
+        const r = await fetch(u,{method:'HEAD',cache:'no-store'});
+        if(r.ok){
+          urlMap[base]=u;
+          return u;
+        }
+      }catch{}
+    }
+    return null;
+  }
+
+  async function load(key){
+    if(buffers.has(key)) return buffers.get(key);
+    const url = await resolveUrl(BASE[key]);
+    if(!url) return null;
+    const res = await fetch(url,{cache:'no-store'});
+    if(!res.ok) return null;
+    const arr = await res.arrayBuffer();
+    const b = await ctx().decodeAudioData(arr);
+    buffers.set(key,b);
+    return b;
+  }
+
+  function play(key,{loop=false}={}){
+    const b=buffers.get(key);
+    if(!b) return null;
+    const s=ctx().createBufferSource();
+    s.buffer=b;
+    s.loop=!!loop;
+    s.connect(master);
+    s.start();
+    return s;
+  }
+
+  function stop(n){
+    if(n&&n.stop){
+      try{n.stop();}catch{}
+    }
+  }
+
+  /* ------------ 规则/状态 ------------ */
+  const COMBOS=['555','106','103'];
+  let buf='', transformed=false, armed=false, readyOnce=false;
+  let ringNode=null, standNode=null;
+
+  function stageOf(s){
+    for(const c of COMBOS){
+      if(c.startsWith(s)) return s.length;
+    }
+    return 0;
+  }
+
+  function interruptRing(){
+    if(ringNode){
+      stop(ringNode);
+      ringNode=null;
+    }
+  }
+
+  async function unlock(){
+    const c=ctx();
+    try{
+      if(c.state==='suspended') await c.resume();
+    }catch{}
+    await Promise.all(Object.keys(BASE).map(k=>load(k).catch(()=>null)));
+    play('openPhone');
+  }
+
+  const unlockOnce=()=>{
+    unlock();
+    document.removeEventListener('pointerdown',unlockOnce,true);
+    document.removeEventListener('touchend',unlockOnce,true);
+    document.removeEventListener('click',unlockOnce,true);
+  };
+
+  ['pointerdown','touchend','click'].forEach(ev =>
+    document.addEventListener(ev,unlockOnce,{once:true,passive:true})
+  );
+
+  function pressDigit(k){
+    interruptRing();
+    const s=(buf+k).slice(-3);
+    const stage=stageOf(s);
+
+    if(stage===1) play('key1');
+    else if(stage===2) play('key5_2');
+    else if(stage===3) play('key5_3');
+    else play('key1');
+
+    buf=s;
+
+    if(buf==='3821') play('combo3821');
+  }
+
+  function onEnter(){
+    interruptRing();
+
+    if(transformed){
+      if(!readyOnce){
+        play('ready');
+        readyOnce=true;
+        return;
+      }
+      play('enter');
+      play('exceed');
+      readyOnce=false;
+      return;
+    }
+
+    if(armed){
+      stop(standNode);
+      standNode=null;
+      const s=play('complete');
+      const done=()=>{
+        transformed=true;
+        readyOnce=false;
+        armed=false;
+        buf='';
+      };
+      if(s) s.onended=done;
+      else setTimeout(done,380);
+      return;
+    }
+
+    play('enter');
+
+    if(buf==='555'){
+      stop(standNode);
+      standNode=play('standBy');
+      if(standNode) standNode.onended=()=>standNode=null;
+      armed=true;
+      return;
+    }
+
+    if(buf==='106'||buf==='103'){
+      return;
+    }
+
+    if(buf.length===3 && buf!=='3821'){
+      play('error');
+      buf='';
+      armed=false;
+      readyOnce=false;
+    }
+  }
+
+  function onStar(){
+    interruptRing();
+    if(transformed) play('weaponHit');
+    else play('key1');
+    buf=(buf+'*').slice(-3);
+  }
+
+  function ringStart(){
+    interruptRing();
+    ringNode=play('ring',{loop:true});
+  }
+
+  function ringStop(){
+    interruptRing();
+  }
+
+  function onClear(){
+    interruptRing();
+    if(!transformed){
+      play('key1');
+      buf='';
+      return;
+    }
+    play('key1');
+    const s=play('release');
+    const done=()=>{
+      transformed=false;
+      armed=false;
+      readyOnce=false;
+      buf='';
+    };
+    if(s) s.onended=done;
+    else done();
+  }
+
+  /* ------------ 绑定 ------------ */
+  document.querySelectorAll('.hit[data-k]').forEach(b=>{
+    const k=b.dataset.k;
+    if(k==='*') b.addEventListener('click', onStar);
+    else b.addEventListener('click', ()=>pressDigit(k));
+  });
+
+  document.getElementById('btnEnter').addEventListener('click', onEnter);
+  document.getElementById('btnRing').addEventListener('click', ringStart);
+  document.getElementById('btnStop').addEventListener('click', ringStop);
+  document.getElementById('btnClear').addEventListener('click', onClear);
+
+  /* ------------ 位置：按百分比摆放 ------------ */
+  window.place = function place(){
+    const css = getComputedStyle(document.documentElement);
+    const enter = document.getElementById('btnEnter');
+    setPct(enter, '--enter-left','--enter-top','--enter-w','--enter-h');
+
+    const ring  = document.getElementById('btnRing');
+    const clear = document.getElementById('btnClear');
+    const stopB = document.getElementById('btnStop');
+
+    const r2L = pct('--row2-left');
+    const r2T = pct('--row2-top');
+    const gapX= pct('--gap-x');
+    const gapY= pct('--gap-y');
+    const keyW= pct('--key-w');
+    const keyH= pct('--key-h');
+
+    setRectPct(ring , r2L,                 r2T, keyW, keyH);
+    setRectPct(clear, r2L + keyW + gapX,   r2T, keyW, keyH);
+    setRectPct(stopB, r2L + (keyW+gapX)*2, r2T, keyW, keyH);
+
+    const keys=[...document.querySelectorAll('.hit[data-k]')];
+    const startL=r2L;
+    const startT=r2T + keyH + gapY;
+
+    keys.forEach((el,i)=>{
+      const row=Math.floor(i/3);
+      const col=i%3;
+      const L=startL + col*(keyW+gapX);
+      const T=startT + row*(keyH+gapY);
+      setRectPct(el, L, T, keyW, keyH);
+    });
+
+    function pct(varName){
+      return parseFloat(css.getPropertyValue(varName)) || 0;
+    }
+    function setPct(el, l,t,w,h){
+      setRectPct(el, pct(l), pct(t), pct(w), pct(h));
+    }
+    function setRectPct(el, l,t,w,h){
+      el.style.left = l + '%';
+      el.style.top  = t + '%';
+      el.style.width  = w + '%';
+      el.style.height = h + '%';
+    }
+  };
+
+  window.addEventListener('load', window.place);
+  window.addEventListener('resize', window.place);
+})();
+</script>
+
+<script>
+(() => {
+  const root = document.documentElement;
+
+  function getVar(name){
+    return parseFloat(getComputedStyle(root).getPropertyValue(name)) || 0;
+  }
+
+  function setVar(name, value){
+    root.style.setProperty(name, value.toFixed(2) + '%');
+  }
+
+  function nudge(name, delta){
+    setVar(name, getVar(name) + delta);
+    if (typeof window.place === 'function') {
+      window.place();
+    } else {
+      window.dispatchEvent(new Event('resize'));
+    }
+  }
+
+  window.addEventListener('keydown', (e) => {
+    const step = e.altKey ? 0.1 : 0.3;
+
+    switch (e.key) {
+      case 'ArrowLeft':
+        e.preventDefault();
+        if (e.shiftKey) nudge('--enter-left', -step);
+        else nudge('--row2-left', -step);
+        break;
+
+      case 'ArrowRight':
+        e.preventDefault();
+        if (e.shiftKey) nudge('--enter-left', step);
+        else nudge('--row2-left', step);
+        break;
+
+      case 'ArrowUp':
+        e.preventDefault();
+        if (e.shiftKey) nudge('--enter-top', -step);
+        else nudge('--row2-top', -step);
+        break;
+
+      case 'ArrowDown':
+        e.preventDefault();
+        if (e.shiftKey) nudge('--enter-top', step);
+        else nudge('--row2-top', step);
+        break;
+
+      case '[':
+        e.preventDefault();
+        nudge('--key-w', -step);
+        break;
+
+      case ']':
+        e.preventDefault();
+        nudge('--key-w', step);
+        break;
+
+      case '-':
+        e.preventDefault();
+        nudge('--key-h', -step);
+        break;
+
+      case '=':
+        e.preventDefault();
+        nudge('--key-h', step);
+        break;
+
+      case ',':
+        e.preventDefault();
+        nudge('--gap-x', -step);
+        break;
+
+      case '.':
+        e.preventDefault();
+        nudge('--gap-x', step);
+        break;
+
+      case ';':
+        e.preventDefault();
+        nudge('--gap-y', -step);
+        break;
+
+      case "'":
+        e.preventDefault();
+        nudge('--gap-y', step);
+        break;
+
+      case 'p':
+      case 'P':
+        console.log({
+          enterLeft: getVar('--enter-left'),
+          enterTop:  getVar('--enter-top'),
+          enterW:    getVar('--enter-w'),
+          enterH:    getVar('--enter-h'),
+          row2Left:  getVar('--row2-left'),
+          row2Top:   getVar('--row2-top'),
+          keyW:      getVar('--key-w'),
+          keyH:      getVar('--key-h'),
+          gapX:      getVar('--gap-x'),
+          gapY:      getVar('--gap-y')
+        });
+        break;
+    }
+  });
+})();
+</script>
+</body>
+</html>
