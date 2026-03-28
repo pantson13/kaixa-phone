@@ -9,21 +9,93 @@
   :root{
     --ui: url('assets/ui.jpg');
 
-    /* ===== 位置参数：已按你截图先整体右移、下移、略缩小 ===== */
-    --enter-left: 27.4%;
-    --enter-top:  53.1%;
-    --enter-w:    29.4%;
-    --enter-h:    4.9%;
-
-    --row2-left:  27.2%;
-    --row2-top:   58.9%;
-    --key-w:      13.1%;
-    --key-h:      4.15%;
-    --gap-x:      3.45%;
-    --gap-y:      1.05%;
-
     --bg:#000;
     --fg:#fff;
+
+    /* ===== 每个按钮单独控制：left / top / width / height ===== */
+
+    /* ENTER */
+    --btn-enter-left: 27.4%;
+    --btn-enter-top:  53.1%;
+    --btn-enter-w:    29.4%;
+    --btn-enter-h:    4.9%;
+
+    /* 第二行 */
+    --btn-ring-left:  26%;
+    --btn-ring-top:   59.7%;
+    --btn-ring-w:     14%;
+    --btn-ring-h:     4.15%;
+
+    --btn-clear-left: 42%;
+    --btn-clear-top:  60.8%;
+    --btn-clear-w:    15%;
+    --btn-clear-h:    4.15%;
+
+    --btn-stop-left:  59%;
+    --btn-stop-top:   59.7%;
+    --btn-stop-w:     13.1%;
+    --btn-stop-h:     4.15%;
+
+    /* 数字区 */
+    --btn-1-left:     26%;
+    --btn-1-top:      65%;
+    --btn-1-w:        14%;
+    --btn-1-h:        4.15%;
+
+    --btn-2-left:     42%;
+    --btn-2-top:      66%;
+    --btn-2-w:        15%;
+    --btn-2-h:        4.15%;
+
+    --btn-3-left:     59%;
+    --btn-3-top:      65%;
+    --btn-3-w:        13.1%;
+    --btn-3-h:        4.15%;
+
+    --btn-4-left:     26%;
+    --btn-4-top:      70.5%;
+    --btn-4-w:        14%;
+    --btn-4-h:        4.15%;
+
+    --btn-5-left:     42%;
+    --btn-5-top:      71%;
+    --btn-5-w:        15%;
+    --btn-5-h:        4.15%;
+
+    --btn-6-left:     59%;
+    --btn-6-top:      70.5%;
+    --btn-6-w:        13.1%;
+    --btn-6-h:        4.15%;
+
+    --btn-7-left:     26%;
+    --btn-7-top:      75.7%;
+    --btn-7-w:        14%;
+    --btn-7-h:        4.15%;
+
+    --btn-8-left:     42%;
+    --btn-8-top:      76%;
+    --btn-8-w:        15%;
+    --btn-8-h:        4.15%;
+
+    --btn-9-left:     59%;
+    --btn-9-top:      75.7%;
+    --btn-9-w:        13.1%;
+    --btn-9-h:        4.15%;
+
+    --btn-star-left:  26%;
+    --btn-star-top:   81%;
+    --btn-star-w:     13.1%;
+    --btn-star-h:     4.15%;
+
+    --btn-0-left:     42%;
+    --btn-0-top:      82%;
+    --btn-0-w:        15%;
+    --btn-0-h:        4.15%;
+
+    --btn-hash-left:  59%;
+    --btn-hash-top:   81%;
+    --btn-hash-w:     13.1%;
+    --btn-hash-h:     4.15%;
   }
 
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent }
@@ -35,51 +107,88 @@
   .phone img{ width:100%; height:auto; display:block; user-select:none; pointer-events:none; }
 
   .hit{
-    position:absolute; border:none; outline:none; background:transparent;
-    touch-action:manipulation; user-select:none; -webkit-user-select:none;
+    position:absolute;
+    border:none;
+    outline:none;
+    background:transparent;
+    touch-action:manipulation;
+    user-select:none;
+    -webkit-user-select:none;
     transform-origin:center;
+    cursor:pointer;
   }
   .hit:active{ transform:scale(.98); }
 
-  /* ===== 调试描边：对齐OK后，把这两段注释掉即可 ===== */
-  .hit{ background:rgba(255,0,0,.22); border:1.5px dashed #00ffff; border-radius:8px; }
+  /* ===== 调试描边：对齐OK后可注释掉 ===== */
+  .hit{
+    background:rgba(255,0,0,.22);
+    border:1.5px dashed #00ffff;
+    border-radius:8px;
+  }
   .hit::after{
     content: attr(aria-label);
-    position:absolute; left:4px; top:2px; font: 600 10px/1 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-    color:#00ffff; text-shadow:0 0 3px #000; pointer-events:none;
+    position:absolute;
+    left:4px;
+    top:2px;
+    font: 600 10px/1 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    color:#00ffff;
+    text-shadow:0 0 3px #000;
+    pointer-events:none;
   }
-  /* =============================================== */
+
+  /* 当前选中的按钮 */
+  .hit.selected{
+    border:2px solid #ffe600;
+    box-shadow:0 0 0 2px rgba(0,0,0,.55) inset, 0 0 10px rgba(255,230,0,.7);
+  }
+
+  .tip{
+    width:min(94vw, 520px);
+    margin:6px auto 0;
+    padding:8px 10px;
+    color:#d9e8ff;
+    font:12px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    opacity:.92;
+  }
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="phone" id="phone">
-      <img src="assets/ui.jpg" alt="KAIXA UI" id="ui"/>
+  <div>
+    <div class="wrap">
+      <div class="phone" id="phone">
+        <img src="assets/ui.jpg" alt="KAIXA UI" id="ui"/>
 
-      <!-- ENTER -->
-      <button class="hit" id="btnEnter" aria-label="ENTER"></button>
+        <!-- ENTER -->
+        <button class="hit" id="btnEnter" aria-label="ENTER" data-btn="enter"></button>
 
-      <!-- 第二行：铃声 / クリア / 停止 -->
-      <button class="hit" id="btnRing"  aria-label="铃声"></button>
-      <button class="hit" id="btnClear" aria-label="クリア"></button>
-      <button class="hit" id="btnStop"  aria-label="停止"></button>
+        <!-- 第二行 -->
+        <button class="hit" id="btnRing"  aria-label="铃声"   data-btn="ring"></button>
+        <button class="hit" id="btnClear" aria-label="クリア" data-btn="clear"></button>
+        <button class="hit" id="btnStop"  aria-label="停止"   data-btn="stop"></button>
 
-      <!-- 数字键 1~9、*0# -->
-      <button class="hit" data-k="1" aria-label="1"></button>
-      <button class="hit" data-k="2" aria-label="2"></button>
-      <button class="hit" data-k="3" aria-label="3"></button>
+        <!-- 数字键 -->
+        <button class="hit" data-k="1" aria-label="1" data-btn="1"></button>
+        <button class="hit" data-k="2" aria-label="2" data-btn="2"></button>
+        <button class="hit" data-k="3" aria-label="3" data-btn="3"></button>
 
-      <button class="hit" data-k="4" aria-label="4"></button>
-      <button class="hit" data-k="5" aria-label="5"></button>
-      <button class="hit" data-k="6" aria-label="6"></button>
+        <button class="hit" data-k="4" aria-label="4" data-btn="4"></button>
+        <button class="hit" data-k="5" aria-label="5" data-btn="5"></button>
+        <button class="hit" data-k="6" aria-label="6" data-btn="6"></button>
 
-      <button class="hit" data-k="7" aria-label="7"></button>
-      <button class="hit" data-k="8" aria-label="8"></button>
-      <button class="hit" data-k="9" aria-label="9"></button>
+        <button class="hit" data-k="7" aria-label="7" data-btn="7"></button>
+        <button class="hit" data-k="8" aria-label="8" data-btn="8"></button>
+        <button class="hit" data-k="9" aria-label="9" data-btn="9"></button>
 
-      <button class="hit" data-k="*" aria-label="*"></button>
-      <button class="hit" data-k="0" aria-label="0"></button>
-      <button class="hit" data-k="#" aria-label="#"></button>
+        <button class="hit" data-k="*" aria-label="*" data-btn="star"></button>
+        <button class="hit" data-k="0" aria-label="0" data-btn="0"></button>
+        <button class="hit" data-k="#" aria-label="#" data-btn="hash"></button>
+      </div>
+    </div>
+
+    <div class="tip">
+      点击任意按钮可选中。<br>
+      方向键：移动选中按钮　　Alt + 方向键：更细步进<br>
+      [ / ]：调宽　　- / =：调高　　P：在控制台输出当前按钮参数
     </div>
   </div>
 
@@ -315,51 +424,22 @@
   document.getElementById('btnStop').addEventListener('click', ringStop);
   document.getElementById('btnClear').addEventListener('click', onClear);
 
-  /* ------------ 位置：按百分比摆放 ------------ */
+  /* ------------ 独立摆放 ------------ */
+  function getPct(name){
+    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
+  }
+
+  function setRectByName(el, name){
+    el.style.left   = getPct(`--btn-${name}-left`) + '%';
+    el.style.top    = getPct(`--btn-${name}-top`) + '%';
+    el.style.width  = getPct(`--btn-${name}-w`) + '%';
+    el.style.height = getPct(`--btn-${name}-h`) + '%';
+  }
+
   window.place = function place(){
-    const css = getComputedStyle(document.documentElement);
-    const enter = document.getElementById('btnEnter');
-    setPct(enter, '--enter-left','--enter-top','--enter-w','--enter-h');
-
-    const ring  = document.getElementById('btnRing');
-    const clear = document.getElementById('btnClear');
-    const stopB = document.getElementById('btnStop');
-
-    const r2L = pct('--row2-left');
-    const r2T = pct('--row2-top');
-    const gapX= pct('--gap-x');
-    const gapY= pct('--gap-y');
-    const keyW= pct('--key-w');
-    const keyH= pct('--key-h');
-
-    setRectPct(ring , r2L,                 r2T, keyW, keyH);
-    setRectPct(clear, r2L + keyW + gapX,   r2T, keyW, keyH);
-    setRectPct(stopB, r2L + (keyW+gapX)*2, r2T, keyW, keyH);
-
-    const keys=[...document.querySelectorAll('.hit[data-k]')];
-    const startL=r2L;
-    const startT=r2T + keyH + gapY;
-
-    keys.forEach((el,i)=>{
-      const row=Math.floor(i/3);
-      const col=i%3;
-      const L=startL + col*(keyW+gapX);
-      const T=startT + row*(keyH+gapY);
-      setRectPct(el, L, T, keyW, keyH);
+    document.querySelectorAll('.hit[data-btn]').forEach(el=>{
+      setRectByName(el, el.dataset.btn);
     });
-
-    function pct(varName){
-      return parseFloat(css.getPropertyValue(varName)) || 0;
-    }
-    function setPct(el, l,t,w,h){
-      setRectPct(el, pct(l), pct(t), pct(w), pct(h));
-    }
-    function setRectPct(el, l,t,w,h){
-      el.style.left = l + '%';
-      el.style.top  = t + '%';
-      el.style.width  = w + '%';
-      el.style.height = h + '%';
-    }
   };
 
   window.addEventListener('load', window.place);
@@ -370,6 +450,18 @@
 <script>
 (() => {
   const root = document.documentElement;
+  const hits = [...document.querySelectorAll('.hit[data-btn]')];
+  let selected = null;
+
+  function selectButton(el){
+    hits.forEach(b => b.classList.remove('selected'));
+    selected = el;
+    if(selected) selected.classList.add('selected');
+  }
+
+  hits.forEach(el => {
+    el.addEventListener('click', () => selectButton(el));
+  });
 
   function getVar(name){
     return parseFloat(getComputedStyle(root).getPropertyValue(name)) || 0;
@@ -379,100 +471,76 @@
     root.style.setProperty(name, value.toFixed(2) + '%');
   }
 
-  function nudge(name, delta){
-    setVar(name, getVar(name) + delta);
-    if (typeof window.place === 'function') {
-      window.place();
-    } else {
-      window.dispatchEvent(new Event('resize'));
-    }
+  function selectedVar(suffix){
+    if(!selected) return null;
+    return `--btn-${selected.dataset.btn}-${suffix}`;
+  }
+
+  function nudgeSelected(suffix, delta){
+    const varName = selectedVar(suffix);
+    if(!varName) return;
+    setVar(varName, getVar(varName) + delta);
+    if (typeof window.place === 'function') window.place();
   }
 
   window.addEventListener('keydown', (e) => {
+    if (!selected) return;
+
     const step = e.altKey ? 0.1 : 0.3;
 
     switch (e.key) {
       case 'ArrowLeft':
         e.preventDefault();
-        if (e.shiftKey) nudge('--enter-left', -step);
-        else nudge('--row2-left', -step);
+        nudgeSelected('left', -step);
         break;
-
       case 'ArrowRight':
         e.preventDefault();
-        if (e.shiftKey) nudge('--enter-left', step);
-        else nudge('--row2-left', step);
+        nudgeSelected('left', step);
         break;
-
       case 'ArrowUp':
         e.preventDefault();
-        if (e.shiftKey) nudge('--enter-top', -step);
-        else nudge('--row2-top', -step);
+        nudgeSelected('top', -step);
         break;
-
       case 'ArrowDown':
         e.preventDefault();
-        if (e.shiftKey) nudge('--enter-top', step);
-        else nudge('--row2-top', step);
+        nudgeSelected('top', step);
         break;
 
       case '[':
         e.preventDefault();
-        nudge('--key-w', -step);
+        nudgeSelected('w', -step);
         break;
-
       case ']':
         e.preventDefault();
-        nudge('--key-w', step);
+        nudgeSelected('w', step);
         break;
 
       case '-':
         e.preventDefault();
-        nudge('--key-h', -step);
+        nudgeSelected('h', -step);
         break;
-
       case '=':
         e.preventDefault();
-        nudge('--key-h', step);
-        break;
-
-      case ',':
-        e.preventDefault();
-        nudge('--gap-x', -step);
-        break;
-
-      case '.':
-        e.preventDefault();
-        nudge('--gap-x', step);
-        break;
-
-      case ';':
-        e.preventDefault();
-        nudge('--gap-y', -step);
-        break;
-
-      case "'":
-        e.preventDefault();
-        nudge('--gap-y', step);
+        nudgeSelected('h', step);
         break;
 
       case 'p':
-      case 'P':
-        console.log({
-          enterLeft: getVar('--enter-left'),
-          enterTop:  getVar('--enter-top'),
-          enterW:    getVar('--enter-w'),
-          enterH:    getVar('--enter-h'),
-          row2Left:  getVar('--row2-left'),
-          row2Top:   getVar('--row2-top'),
-          keyW:      getVar('--key-w'),
-          keyH:      getVar('--key-h'),
-          gapX:      getVar('--gap-x'),
-          gapY:      getVar('--gap-y')
+      case 'P': {
+        const btn = selected.dataset.btn;
+        console.log(`${btn}`, {
+          left: getVar(`--btn-${btn}-left`),
+          top:  getVar(`--btn-${btn}-top`),
+          w:    getVar(`--btn-${btn}-w`),
+          h:    getVar(`--btn-${btn}-h`)
         });
         break;
+      }
     }
   });
+
+  // 默认选中 ENTER
+  const enter = document.querySelector('[data-btn="enter"]');
+  if (enter) selectButton(enter);
 })();
 </script>
 </body>
