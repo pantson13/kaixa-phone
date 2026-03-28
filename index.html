@@ -150,6 +150,14 @@
     font:12px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
     opacity:.92;
   }
+
+  .boot-lock{
+    position:fixed;
+    inset:0;
+    z-index:9999;
+    background:transparent;
+    cursor:pointer;
+  }
 </style>
 </head>
 <body>
@@ -186,19 +194,24 @@
     </div>
 
     <div class="tip">
-      点击任意按钮可选中。<br>
-      方向键：移动选中按钮　　Alt + 方向键：更细步进<br>
-      [ / ]：调宽　　- / =：调高　　P：在控制台输出当前按钮参数
+      首次点击屏幕任意位置只会播放 open phone，播完后才开放其他交互。<br>
+      点击任意按钮可选中。方向键：移动选中按钮　Alt + 方向键：更细步进<br>
+      [ / ]：调宽　- / =：调高　P：在控制台输出当前按钮参数
     </div>
   </div>
 
+  <!-- 开机锁层：开机音播放完之前拦住所有按钮 -->
+  <div class="boot-lock" id="bootLock" aria-hidden="true"></div>
+
 <script>
 (() => {
-  /* ------------ 资源（自动匹配 .m4a/.mp3/.wav/.mp4） ------------ */
+  /* ------------ 资源（统一使用 .mp4） ------------ */
   const BASE = {
     openPhone: 'assets/open phone',
     ring:      'assets/ring',
     enter:     'assets/enter',
+    key1:      'assets/key1',
+    key3:      'assets/key3',
     key9:      'assets/key9',
     standBy:   'assets/stand by',
     complete:  'assets/complete',
@@ -209,18 +222,18 @@
     combo3821: 'assets/3821',
     weaponHit: 'assets/weaponHit'
   };
-  const EXT = ['.m4a','.mp3','.wav','.mp4'];
+  const EXT = ['.mp4'];
   const urlMap = {};
 
-  let ac=null, master=null;
-  const buffers=new Map();
+  let ac = null, master = null;
+  const buffers = new Map();
 
   function ctx(){
     if(ac) return ac;
-    const C=window.AudioContext||window.webkitAudioContext;
-    ac=new C({latencyHint:'interactive'});
-    master=ac.createGain();
-    master.gain.value=1;
+    const C = window.AudioContext || window.webkitAudioContext;
+    ac = new C({latencyHint:'interactive'});
+    master = ac.createGain();
+    master.gain.value = 1;
     master.connect(ac.destination);
     return ac;
   }
@@ -230,9 +243,9 @@
     for(const ext of EXT){
       const u = `${base}${ext}`;
       try{
-        const r = await fetch(u,{method:'HEAD',cache:'no-store'});
+        const r = await fetch(u, {method:'HEAD', cache:'no-store'});
         if(r.ok){
-          urlMap[base]=u;
+          urlMap[base] = u;
           return u;
         }
       }catch{}
@@ -244,164 +257,208 @@
     if(buffers.has(key)) return buffers.get(key);
     const url = await resolveUrl(BASE[key]);
     if(!url) return null;
-    const res = await fetch(url,{cache:'no-store'});
+    const res = await fetch(url, {cache:'no-store'});
     if(!res.ok) return null;
     const arr = await res.arrayBuffer();
     const b = await ctx().decodeAudioData(arr);
-    buffers.set(key,b);
+    buffers.set(key, b);
     return b;
   }
 
   function play(key,{loop=false}={}){
-    const b=buffers.get(key);
+    const b = buffers.get(key);
     if(!b) return null;
-    const s=ctx().createBufferSource();
-    s.buffer=b;
-    s.loop=!!loop;
+    const s = ctx().createBufferSource();
+    s.buffer = b;
+    s.loop = !!loop;
     s.connect(master);
     s.start();
     return s;
   }
 
   function stop(n){
-    if(n&&n.stop){
-      try{n.stop();}catch{}
+    if(n && n.stop){
+      try{ n.stop(); }catch{}
     }
   }
 
   /* ------------ 规则/状态 ------------ */
-  const COMBOS=['555','106','103'];
-  let buf='', transformed=false, armed=false, readyOnce=false;
-  let ringNode=null, standNode=null;
+  const TRANSFORM_CODE = '913';
+  let buf = '';
+  let transformed = false;
+  let armed = false;
+  let readyOnce = false;
+  let ringNode = null;
+  let standNode = null;
+
+  // 开机锁
+  let booting = true;
+  let bootPlayed = false;
+
+  const bootLock = document.getElementById('bootLock');
 
   function interruptRing(){
     if(ringNode){
       stop(ringNode);
-      ringNode=null;
+      ringNode = null;
     }
   }
 
-  async function unlock(){
-    const c=ctx();
-    try{
-      if(c.state==='suspended') await c.resume();
-    }catch{}
-    await Promise.all(Object.keys(BASE).map(k=>load(k).catch(()=>null)));
-    play('openPhone');
+  function preloadRest(){
+    Object.keys(BASE)
+      .filter(k => k !== 'openPhone')
+      .forEach(k => load(k).catch(() => null));
   }
 
-  const unlockOnce=()=>{
-    unlock();
-    document.removeEventListener('pointerdown',unlockOnce,true);
-    document.removeEventListener('touchend',unlockOnce,true);
-    document.removeEventListener('click',unlockOnce,true);
-  };
+  async function startBoot(){
+    if(bootPlayed) return;
+    bootPlayed = true;
 
-  ['pointerdown','touchend','click'].forEach(ev =>
-    document.addEventListener(ev,unlockOnce,{once:true,passive:true})
-  );
+    const c = ctx();
+    try{
+      if(c.state === 'suspended') await c.resume();
+    }catch{}
+
+    await load('openPhone');
+    const s = play('openPhone');
+
+    const done = () => {
+      booting = false;
+      bootLock.style.display = 'none';
+      preloadRest();
+    };
+
+    if(s){
+      s.onended = done;
+    }else{
+      setTimeout(done, 1200);
+    }
+  }
+
+  function bootTrap(e){
+    if(!booting) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (typeof e.stopImmediatePropagation === 'function') {
+      e.stopImmediatePropagation();
+    }
+    startBoot();
+  }
+
+  bootLock.addEventListener('pointerdown', bootTrap, true);
+  bootLock.addEventListener('click', bootTrap, true);
+  bootLock.addEventListener('touchend', bootTrap, true);
+
+  function getDigitSound(k){
+    if(k === '9') return 'key9';
+    if(k === '1') return 'key1';
+    if(k === '3') return 'key3';
+    return 'key9';
+  }
 
   function pressDigit(k){
+    if(booting) return;
     interruptRing();
-    const s=(buf+k).slice(-3);
-    play('key9');
-    buf=s;
+    const s = (buf + k).slice(-3);
+    play(getDigitSound(k));
+    buf = s;
 
-    if(buf==='3821') play('combo3821');
+    if(buf === '3821') play('combo3821');
   }
 
   function onEnter(){
+    if(booting) return;
     interruptRing();
 
     if(transformed){
       if(!readyOnce){
         play('ready');
-        readyOnce=true;
+        readyOnce = true;
         return;
       }
       play('enter');
       play('exceed');
-      readyOnce=false;
+      readyOnce = false;
       return;
     }
 
     if(armed){
       stop(standNode);
-      standNode=null;
-      const s=play('complete');
-      const done=()=>{
-        transformed=true;
-        readyOnce=false;
-        armed=false;
-        buf='';
+      standNode = null;
+      const s = play('complete');
+      const done = () => {
+        transformed = true;
+        readyOnce = false;
+        armed = false;
+        buf = '';
       };
-      if(s) s.onended=done;
-      else setTimeout(done,380);
+      if(s) s.onended = done;
+      else setTimeout(done, 380);
       return;
     }
 
     play('enter');
 
-    if(buf==='555'){
+    if(buf === TRANSFORM_CODE){
       stop(standNode);
-      standNode=play('standBy');
-      if(standNode) standNode.onended=()=>standNode=null;
-      armed=true;
+      standNode = play('standBy');
+      if(standNode) standNode.onended = () => standNode = null;
+      armed = true;
       return;
     }
 
-    if(buf==='106'||buf==='103'){
-      return;
-    }
-
-    if(buf.length===3 && buf!=='3821'){
+    if(buf.length === 3 && buf !== '3821'){
       play('error');
-      buf='';
-      armed=false;
-      readyOnce=false;
+      buf = '';
+      armed = false;
+      readyOnce = false;
     }
   }
 
   function onStar(){
+    if(booting) return;
     interruptRing();
     if(transformed) play('weaponHit');
     else play('key9');
-    buf=(buf+'*').slice(-3);
+    buf = (buf + '*').slice(-3);
   }
 
   function ringStart(){
+    if(booting) return;
     interruptRing();
-    ringNode=play('ring',{loop:true});
+    ringNode = play('ring', {loop:true});
   }
 
   function ringStop(){
+    if(booting) return;
     interruptRing();
   }
 
   function onClear(){
+    if(booting) return;
     interruptRing();
     if(!transformed){
       play('key9');
-      buf='';
+      buf = '';
       return;
     }
     play('key9');
-    const s=play('release');
-    const done=()=>{
-      transformed=false;
-      armed=false;
-      readyOnce=false;
-      buf='';
+    const s = play('release');
+    const done = () => {
+      transformed = false;
+      armed = false;
+      readyOnce = false;
+      buf = '';
     };
-    if(s) s.onended=done;
+    if(s) s.onended = done;
     else done();
   }
 
   /* ------------ 绑定 ------------ */
-  document.querySelectorAll('.hit[data-k]').forEach(b=>{
-    const k=b.dataset.k;
-    if(k==='*') b.addEventListener('click', onStar);
-    else b.addEventListener('click', ()=>pressDigit(k));
+  document.querySelectorAll('.hit[data-k]').forEach(b => {
+    const k = b.dataset.k;
+    if(k === '*') b.addEventListener('click', onStar);
+    else b.addEventListener('click', () => pressDigit(k));
   });
 
   document.getElementById('btnEnter').addEventListener('click', onEnter);
@@ -422,7 +479,7 @@
   }
 
   window.place = function place(){
-    document.querySelectorAll('.hit[data-btn]').forEach(el=>{
+    document.querySelectorAll('.hit[data-btn]').forEach(el => {
       setRectByName(el, el.dataset.btn);
     });
   };
