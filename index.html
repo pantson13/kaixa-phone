@@ -199,9 +199,7 @@
     openPhone: 'assets/open phone',
     ring:      'assets/ring',
     enter:     'assets/enter',
-    key1:      'assets/key1',
-    key5_2:    'assets/key5_2',
-    key5_3:    'assets/key5_3',
+    key9:      'assets/key9',
     standBy:   'assets/stand by',
     complete:  'assets/complete',
     error:     'assets/error',
@@ -276,13 +274,6 @@
   let buf='', transformed=false, armed=false, readyOnce=false;
   let ringNode=null, standNode=null;
 
-  function stageOf(s){
-    for(const c of COMBOS){
-      if(c.startsWith(s)) return s.length;
-    }
-    return 0;
-  }
-
   function interruptRing(){
     if(ringNode){
       stop(ringNode);
@@ -313,13 +304,7 @@
   function pressDigit(k){
     interruptRing();
     const s=(buf+k).slice(-3);
-    const stage=stageOf(s);
-
-    if(stage===1) play('key1');
-    else if(stage===2) play('key5_2');
-    else if(stage===3) play('key5_3');
-    else play('key1');
-
+    play('key9');
     buf=s;
 
     if(buf==='3821') play('combo3821');
@@ -380,7 +365,7 @@
   function onStar(){
     interruptRing();
     if(transformed) play('weaponHit');
-    else play('key1');
+    else play('key9');
     buf=(buf+'*').slice(-3);
   }
 
@@ -396,11 +381,11 @@
   function onClear(){
     interruptRing();
     if(!transformed){
-      play('key1');
+      play('key9');
       buf='';
       return;
     }
-    play('key1');
+    play('key9');
     const s=play('release');
     const done=()=>{
       transformed=false;
