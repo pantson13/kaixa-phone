@@ -12,8 +12,6 @@
     --bg:#000;
     --fg:#fff;
 
-    /* ===== 每个按钮单独控制：left / top / width / height ===== */
-
     /* ENTER */
     --btn-enter-left: 27.4%;
     --btn-enter-top:  53.1%;
@@ -119,7 +117,7 @@
   }
   .hit:active{ transform:scale(.98); }
 
-  /* ===== 调试描边：对齐OK后可注释掉 ===== */
+  /* 调试描边 */
   .hit{
     background:rgba(255,0,0,.22);
     border:1.5px dashed #00ffff;
@@ -191,9 +189,7 @@
 
     <div class="tip">
       首次点击屏幕任意位置只会播放 open phone，播完后才开放其他交互。<br>
-      打开 F12 看 Console，可以看到 open phone 是否加载成功。<br>
-      点击任意按钮可选中。方向键：移动选中按钮　Alt + 方向键：更细步进<br>
-      [ / ]：调宽　- / =：调高　P：在控制台输出当前按钮参数
+      点击任意按钮可选中。方向键移动，Alt + 方向键微调，[ / ] 调宽，- / = 调高，P 输出当前参数。
     </div>
   </div>
 
@@ -201,94 +197,26 @@
 
 <script>
 (() => {
-  /* ------------ 资源（统一使用 .mp4） ------------ */
-  const BASE = {
-    openPhone: 'assets/open phone',
-    ring:      'assets/ring',
-    enter:     'assets/enter',
-    key1:      'assets/key1',
-    key3:      'assets/key3',
-    key9:      'assets/key9',
-    standBy:   'assets/stand by',
-    complete:  'assets/complete',
-    error:     'assets/error',
-    ready:     'assets/ready',
-    exceed:    'assets/exceed charge',
-    release:   'assets/release',
-    combo3821: 'assets/3821',
-    weaponHit: 'assets/weaponHit'
+  /* ------------ 资源：按你截图里的真实文件名写死 ------------ */
+  const AUDIO_URLS = {
+    openPhone:  'assets/open phone.mp4',
+    ring:       'assets/ring.m4a',
+    enter:      'assets/enter.m4a',
+    key1:       'assets/key1.mp4',
+    key3:       'assets/key3.mp4',
+    key9:       'assets/key9.mp4',
+    standBy:    'assets/stand by.mp4',
+    complete:   'assets/complete.mp4',
+    error:      'assets/error.m4a',
+    ready:      'assets/ready.mp4',
+    exceed:     'assets/exceed charge.mp4',
+    release:    'assets/release.m4a',
+    weaponHit:  'assets/weaponHit.m4a',
+    combo3821:  null
   };
 
-  let ac = null, master = null;
-  const buffers = new Map();
-  const urlMap = {};
-
-  function ctx(){
-    if(ac) return ac;
-    const C = window.AudioContext || window.webkitAudioContext;
-    ac = new C({latencyHint:'interactive'});
-    master = ac.createGain();
-    master.gain.value = 1;
-    master.connect(ac.destination);
-    return ac;
-  }
-
-  async function resolveUrl(base){
-    if(urlMap[base]) return urlMap[base];
-    const u = `${base}.mp4`;
-    urlMap[base] = u;
-    return u;
-  }
-
-  async function load(key){
-    if(buffers.has(key)) return buffers.get(key);
-
-    const url = await resolveUrl(BASE[key]);
-    if(!url){
-      console.error('[load] URL not found:', key);
-      return null;
-    }
-
-    try{
-      const res = await fetch(url, {cache:'no-store'});
-      if(!res.ok){
-        console.error('[load] fetch failed:', key, url, res.status);
-        return null;
-      }
-
-      const arr = await res.arrayBuffer();
-      const b = await ctx().decodeAudioData(arr);
-      buffers.set(key, b);
-      console.log('[load] success:', key, url);
-      return b;
-    }catch(err){
-      console.error('[load] decode failed:', key, url, err);
-      return null;
-    }
-  }
-
-  function play(key,{loop=false}={}){
-    const b = buffers.get(key);
-    if(!b){
-      console.warn('[play] buffer missing:', key);
-      return null;
-    }
-    const s = ctx().createBufferSource();
-    s.buffer = b;
-    s.loop = !!loop;
-    s.connect(master);
-    s.start();
-    console.log('[play] start:', key);
-    return s;
-  }
-
-  function stop(n){
-    if(n && n.stop){
-      try{ n.stop(); }catch{}
-    }
-  }
-
   const TRANSFORM_CODE = '913';
+
   let buf = '';
   let transformed = false;
   let armed = false;
@@ -300,6 +228,56 @@
   let bootPlayed = false;
 
   const bootLock = document.getElementById('bootLock');
+  const audioCache = new Map();
+
+  function getAudio(key){
+    const url = AUDIO_URLS[key];
+    if(!url) return null;
+    if(!audioCache.has(key)){
+      const a = new Audio(url);
+      a.preload = 'auto';
+      audioCache.set(key, a);
+    }
+    return audioCache.get(key);
+  }
+
+  function preloadRest(){
+    Object.keys(AUDIO_URLS)
+      .filter(k => k !== 'openPhone' && AUDIO_URLS[k])
+      .forEach(k => { getAudio(k); });
+  }
+
+  function play(key, {loop = false, onended = null} = {}){
+    const base = getAudio(key);
+    if(!base){
+      console.warn('[play] missing audio:', key);
+      return null;
+    }
+
+    const node = base.cloneNode(true);
+    node.loop = !!loop;
+    node.currentTime = 0;
+
+    if(onended){
+      node.addEventListener('ended', onended, { once:true });
+    }
+
+    node.play().then(() => {
+      console.log('[play] success:', key);
+    }).catch(err => {
+      console.error('[play] failed:', key, err);
+    });
+
+    return node;
+  }
+
+  function stop(node){
+    if(!node) return;
+    try{
+      node.pause();
+      node.currentTime = 0;
+    }catch{}
+  }
 
   function interruptRing(){
     if(ringNode){
@@ -308,50 +286,42 @@
     }
   }
 
-  function preloadRest(){
-    Object.keys(BASE)
-      .filter(k => k !== 'openPhone')
-      .forEach(k => load(k).catch(() => null));
+  function finishBoot(){
+    booting = false;
+    bootLock.style.display = 'none';
+    preloadRest();
+    console.log('[boot] done');
   }
 
-  async function startBoot(){
+  function startBoot(){
     if(bootPlayed) return;
     bootPlayed = true;
     console.log('[boot] start');
 
-    const c = ctx();
-    try{
-      if(c.state === 'suspended') await c.resume();
-    }catch(err){
-      console.error('[boot] audioContext resume failed:', err);
+    const node = play('openPhone', {
+      onended: finishBoot
+    });
+
+    if(!node){
+      console.warn('[boot] openPhone failed to create, fallback unlock');
+      setTimeout(finishBoot, 1200);
+      return;
     }
 
-    const bootBuffer = await load('openPhone');
-    console.log('[boot] openPhone buffer:', bootBuffer);
-
-    const s = play('openPhone');
-    console.log('[boot] openPhone source:', s);
-
-    const done = () => {
-      console.log('[boot] done');
-      booting = false;
-      bootLock.style.display = 'none';
-      preloadRest();
-    };
-
-    if(s){
-      s.onended = done;
-    }else{
-      console.warn('[boot] openPhone did not start, fallback unlock after 1200ms');
-      setTimeout(done, 1200);
-    }
+    /* 某些浏览器即使没触发 ended，也别永远锁死 */
+    setTimeout(() => {
+      if (booting) {
+        console.warn('[boot] fallback unlock after timeout');
+        finishBoot();
+      }
+    }, 2500);
   }
 
   function bootTrap(e){
     if(!booting) return;
     e.preventDefault();
     e.stopPropagation();
-    if (typeof e.stopImmediatePropagation === 'function') {
+    if(typeof e.stopImmediatePropagation === 'function'){
       e.stopImmediatePropagation();
     }
     startBoot();
@@ -371,11 +341,8 @@
   function pressDigit(k){
     if(booting) return;
     interruptRing();
-    const s = (buf + k).slice(-3);
+    buf = (buf + k).slice(-3);
     play(getDigitSound(k));
-    buf = s;
-
-    if(buf === '3821') play('combo3821');
   }
 
   function onEnter(){
@@ -397,15 +364,20 @@
     if(armed){
       stop(standNode);
       standNode = null;
-      const s = play('complete');
-      const done = () => {
+      const s = play('complete', {
+        onended: () => {
+          transformed = true;
+          readyOnce = false;
+          armed = false;
+          buf = '';
+        }
+      });
+      if(!s){
         transformed = true;
         readyOnce = false;
         armed = false;
         buf = '';
-      };
-      if(s) s.onended = done;
-      else setTimeout(done, 380);
+      }
       return;
     }
 
@@ -414,12 +386,11 @@
     if(buf === TRANSFORM_CODE){
       stop(standNode);
       standNode = play('standBy');
-      if(standNode) standNode.onended = () => standNode = null;
       armed = true;
       return;
     }
 
-    if(buf.length === 3 && buf !== '3821'){
+    if(buf.length === 3){
       play('error');
       buf = '';
       armed = false;
@@ -438,7 +409,7 @@
   function ringStart(){
     if(booting) return;
     interruptRing();
-    ringNode = play('ring', {loop:true});
+    ringNode = play('ring', { loop:true });
   }
 
   function ringStop(){
@@ -449,21 +420,29 @@
   function onClear(){
     if(booting) return;
     interruptRing();
+
     if(!transformed){
       play('key9');
       buf = '';
       return;
     }
+
     play('key9');
-    const s = play('release');
-    const done = () => {
+    const s = play('release', {
+      onended: () => {
+        transformed = false;
+        armed = false;
+        readyOnce = false;
+        buf = '';
+      }
+    });
+
+    if(!s){
       transformed = false;
       armed = false;
       readyOnce = false;
       buf = '';
-    };
-    if(s) s.onended = done;
-    else done();
+    }
   }
 
   document.querySelectorAll('.hit[data-k]').forEach(b => {
@@ -537,7 +516,6 @@
 
   window.addEventListener('keydown', (e) => {
     if (!selected) return;
-
     const step = e.altKey ? 0.1 : 0.3;
 
     switch (e.key) {
@@ -557,7 +535,6 @@
         e.preventDefault();
         nudgeSelected('top', step);
         break;
-
       case '[':
         e.preventDefault();
         nudgeSelected('w', -step);
@@ -566,7 +543,6 @@
         e.preventDefault();
         nudgeSelected('w', step);
         break;
-
       case '-':
         e.preventDefault();
         nudgeSelected('h', -step);
@@ -575,7 +551,6 @@
         e.preventDefault();
         nudgeSelected('h', step);
         break;
-
       case 'p':
       case 'P': {
         const btn = selected.dataset.btn;
