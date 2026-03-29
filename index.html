@@ -111,7 +111,7 @@
     transform-origin:center;
     cursor:pointer;
 
-    /* 调试框显示 */
+    /* 调试框 */
     background:rgba(255,0,0,.22);
     border:1.5px dashed #00ffff;
     border-radius:8px;
@@ -127,11 +127,6 @@
     color:#00ffff;
     text-shadow:0 0 3px #000;
     pointer-events:none;
-  }
-
-  .hit.selected{
-    border:2px solid #ffe600;
-    box-shadow:0 0 0 2px rgba(0,0,0,.55) inset, 0 0 10px rgba(255,230,0,.7);
   }
 
   .tip{
@@ -174,13 +169,13 @@
 
     <div class="tip">
       首次点击屏幕任意位置只会播放 open phone，播完后才开放其他交互。<br>
-      这版严格沿用 FAIZ 的音效加载与播放方式。
+      这版去掉了额外 boot 锁层，启动方式和 FAIZ 一致。
     </div>
   </div>
 
 <script>
 (() => {
-  /* ------------ 资源（严格对齐 FAIZ 方式） ------------ */
+  /* ------------ 严格对齐 FAIZ 的加载方式 ------------ */
   const BASE = {
     openPhone: 'assets/open phone',
     ring:      'assets/ring',
@@ -196,6 +191,7 @@
     release:   'assets/release',
     weaponHit: 'assets/weaponHit'
   };
+
   const EXT = ['.m4a','.mp3','.wav','.mp4'];
   const urlMap = {};
 
@@ -217,7 +213,7 @@
     for(const ext of EXT){
       const u = `${base}${ext}`;
       try{
-        const r = await fetch(u, { method:'HEAD', cache:'no-store' });
+        const r = await fetch(u,{ method:'HEAD', cache:'no-store' });
         if(r.ok){
           urlMap[base] = u;
           return u;
@@ -231,11 +227,13 @@
     if(buffers.has(key)) return buffers.get(key);
     const url = await resolveUrl(BASE[key]);
     if(!url) return null;
-    const res = await fetch(url, { cache:'no-store' });
+
+    const res = await fetch(url,{ cache:'no-store' });
     if(!res.ok) return null;
+
     const arr = await res.arrayBuffer();
     const b = await ctx().decodeAudioData(arr);
-    buffers.set(key, b);
+    buffers.set(key,b);
     return b;
   }
 
@@ -256,7 +254,7 @@
     }
   }
 
-  /* ------------ 状态 ------------ */
+  /* ------------ KAIXA 逻辑 ------------ */
   const TRANSFORM_CODE = '913';
 
   let buf = '';
@@ -265,9 +263,7 @@
   let readyOnce = false;
   let ringNode = null;
   let standNode = null;
-
   let booting = true;
-  let bootStarted = false;
 
   function interruptRing(){
     if(ringNode){
@@ -276,31 +272,27 @@
     }
   }
 
-  async function unlockAndBoot(){
-    if(bootStarted) return;
-    bootStarted = true;
-
+  async function unlock(){
     const c = ctx();
     try{
       if(c.state === 'suspended') await c.resume();
     }catch{}
 
-    await Promise.all(Object.keys(BASE).map(k => load(k).catch(() => null)));
-
+    await Promise.all(Object.keys(BASE).map(k => load(k).catch(()=>null)));
     const s = play('openPhone');
-    const done = () => { booting = false; };
 
+    const done = () => { booting = false; };
     if(s) s.onended = done;
     else setTimeout(done, 1200);
   }
 
-  /* 严格像 FAIZ 一样：第一次用户交互统一解锁 */
   const unlockOnce = () => {
-    unlockAndBoot();
+    unlock();
     document.removeEventListener('pointerdown', unlockOnce, true);
     document.removeEventListener('touchend', unlockOnce, true);
     document.removeEventListener('click', unlockOnce, true);
   };
+
   ['pointerdown','touchend','click'].forEach(ev =>
     document.addEventListener(ev, unlockOnce, { once:true, passive:true })
   );
@@ -379,7 +371,7 @@
   function ringStart(){
     if(booting) return;
     interruptRing();
-    ringNode = play('ring', { loop:true });
+    ringNode = play('ring',{loop:true});
   }
 
   function ringStop(){
@@ -390,11 +382,13 @@
   function onClear(){
     if(booting) return;
     interruptRing();
+
     if(!transformed){
       play('key9');
       buf = '';
       return;
     }
+
     play('key9');
     const s = play('release');
     const done = () => {
@@ -413,6 +407,7 @@
     if(k === '*') b.addEventListener('click', onStar);
     else b.addEventListener('click', () => pressDigit(k));
   });
+
   document.getElementById('btnEnter').addEventListener('click', onEnter);
   document.getElementById('btnRing').addEventListener('click', ringStart);
   document.getElementById('btnStop').addEventListener('click', ringStop);
@@ -430,106 +425,14 @@
     el.style.height = getPct(`--btn-${name}-h`) + '%';
   }
 
-  window.place = function place(){
+  function place(){
     document.querySelectorAll('.hit[data-btn]').forEach(el => {
       setRectByName(el, el.dataset.btn);
     });
-  };
-
-  window.addEventListener('load', window.place);
-  window.addEventListener('resize', window.place);
-})();
-</script>
-
-<script>
-(() => {
-  const root = document.documentElement;
-  const hits = [...document.querySelectorAll('.hit[data-btn]')];
-  let selected = null;
-
-  function selectButton(el){
-    hits.forEach(b => b.classList.remove('selected'));
-    selected = el;
-    if(selected) selected.classList.add('selected');
   }
 
-  hits.forEach(el => {
-    el.addEventListener('click', () => selectButton(el));
-  });
-
-  function getVar(name){
-    return parseFloat(getComputedStyle(root).getPropertyValue(name)) || 0;
-  }
-
-  function setVar(name, value){
-    root.style.setProperty(name, value.toFixed(2) + '%');
-  }
-
-  function selectedVar(suffix){
-    if(!selected) return null;
-    return `--btn-${selected.dataset.btn}-${suffix}`;
-  }
-
-  function nudgeSelected(suffix, delta){
-    const varName = selectedVar(suffix);
-    if(!varName) return;
-    setVar(varName, getVar(varName) + delta);
-    if(typeof window.place === 'function') window.place();
-  }
-
-  window.addEventListener('keydown', (e) => {
-    if(!selected) return;
-    const step = e.altKey ? 0.1 : 0.3;
-
-    switch (e.key) {
-      case 'ArrowLeft':
-        e.preventDefault();
-        nudgeSelected('left', -step);
-        break;
-      case 'ArrowRight':
-        e.preventDefault();
-        nudgeSelected('left', step);
-        break;
-      case 'ArrowUp':
-        e.preventDefault();
-        nudgeSelected('top', -step);
-        break;
-      case 'ArrowDown':
-        e.preventDefault();
-        nudgeSelected('top', step);
-        break;
-      case '[':
-        e.preventDefault();
-        nudgeSelected('w', -step);
-        break;
-      case ']':
-        e.preventDefault();
-        nudgeSelected('w', step);
-        break;
-      case '-':
-        e.preventDefault();
-        nudgeSelected('h', -step);
-        break;
-      case '=':
-        e.preventDefault();
-        nudgeSelected('h', step);
-        break;
-      case 'p':
-      case 'P': {
-        const btn = selected.dataset.btn;
-        console.log(`${btn}`, {
-          left: getVar(`--btn-${btn}-left`),
-          top:  getVar(`--btn-${btn}-top`),
-          w:    getVar(`--btn-${btn}-w`),
-          h:    getVar(`--btn-${btn}-h`)
-        });
-        break;
-      }
-    }
-  });
-
-  const enter = document.querySelector('[data-btn="enter"]');
-  if(enter) selectButton(enter);
+  window.addEventListener('load', place);
+  window.addEventListener('resize', place);
 })();
 </script>
 </body>
