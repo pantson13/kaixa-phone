@@ -218,45 +218,96 @@
   let bootPlayed = false;
 
   const bootLock = document.getElementById('bootLock');
-  const audioCache = new Map();
 
-  function getAudio(key){
+  // 每个音效准备一个小池，减少按下到发声的延迟
+  const audioPools = new Map();
+  const POOL_SIZE_DEFAULT = 4;
+
+  function createAudio(url){
+    const a = new Audio(url);
+    a.preload = 'auto';
+    a.playsInline = true;
+    a.load();
+    return a;
+  }
+
+  function getPoolSize(key){
+    // 高频短音给大一点的池
+    if (key === 'key1' || key === 'key3' || key === 'key9') return 6;
+    if (key === 'enter' || key === 'weaponHit') return 4;
+    return POOL_SIZE_DEFAULT;
+  }
+
+  function ensurePool(key){
     const url = AUDIO_URLS[key];
     if(!url) return null;
-    if(!audioCache.has(key)){
-      const a = new Audio(url);
-      a.preload = 'auto';
-      audioCache.set(key, a);
+    if(audioPools.has(key)) return audioPools.get(key);
+
+    const size = getPoolSize(key);
+    const pool = [];
+    for(let i = 0; i < size; i++){
+      pool.push(createAudio(url));
     }
-    return audioCache.get(key);
+    audioPools.set(key, pool);
+    return pool;
+  }
+
+  function warmPool(key){
+    const pool = ensurePool(key);
+    if(!pool) return;
+    pool.forEach(a => {
+      try{ a.load(); }catch{}
+    });
   }
 
   function preloadRest(){
     Object.keys(AUDIO_URLS)
       .filter(k => k !== 'openPhone' && AUDIO_URLS[k])
-      .forEach(k => { getAudio(k); });
+      .forEach(k => warmPool(k));
+  }
+
+  function getAvailableAudio(key){
+    const pool = ensurePool(key);
+    if(!pool) return null;
+
+    // 先找空闲的
+    let node = pool.find(a => a.paused || a.ended);
+    if(node) return node;
+
+    // 都在播放时，强行复用最前一个，保证响应速度
+    node = pool[0];
+    try{
+      node.pause();
+      node.currentTime = 0;
+    }catch{}
+    return node;
   }
 
   function play(key, {loop = false, onended = null} = {}){
-    const base = getAudio(key);
-    if(!base){
+    const node = getAvailableAudio(key);
+    if(!node){
       console.warn('[play] missing audio:', key);
       return null;
     }
 
-    const node = base.cloneNode(true);
+    try{
+      node.pause();
+      node.currentTime = 0;
+    }catch{}
+
     node.loop = !!loop;
-    node.currentTime = 0;
+    node.onended = null;
 
     if(onended){
-      node.addEventListener('ended', onended, { once:true });
+      node.onended = onended;
     }
 
-    node.play().then(() => {
-      console.log('[play] success:', key);
-    }).catch(err => {
-      console.error('[play] failed:', key, err);
-    });
+    const p = node.play();
+    if(p && typeof p.catch === 'function'){
+      p.catch(err => {
+        console.error('[play] failed:', key, err);
+      });
+    }
 
     return node;
   }
@@ -266,6 +317,8 @@
     try{
       node.pause();
       node.currentTime = 0;
+      node.loop = false;
+      node.onended = null;
     }catch{}
   }
 
@@ -280,29 +333,27 @@
     booting = false;
     bootLock.style.display = 'none';
     preloadRest();
-    console.log('[boot] done');
   }
 
   function startBoot(){
     if(bootPlayed) return;
     bootPlayed = true;
-    console.log('[boot] start');
+
+    // 先确保开机音本身也预热
+    warmPool('openPhone');
 
     const node = play('openPhone', {
       onended: finishBoot
     });
 
     if(!node){
-      console.warn('[boot] openPhone failed to create, fallback unlock');
       setTimeout(finishBoot, 1200);
       return;
     }
 
+    // 防止 ended 没触发时永远锁死
     setTimeout(() => {
-      if (booting) {
-        console.warn('[boot] fallback unlock after timeout');
-        finishBoot();
-      }
+      if (booting) finishBoot();
     }, 2500);
   }
 
