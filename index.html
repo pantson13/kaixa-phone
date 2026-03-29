@@ -115,7 +115,7 @@
     transform-origin:center;
     cursor:pointer;
 
-    /* 调试显示 */
+    /* 调试框显示 */
     background:rgba(255,0,0,.22);
     border:1.5px dashed #00ffff;
     border-radius:8px;
@@ -154,10 +154,6 @@
     background:transparent;
     cursor:pointer;
   }
-
-  .hidden-audio{
-    display:none;
-  }
 </style>
 </head>
 <body>
@@ -191,186 +187,140 @@
     </div>
 
     <div class="tip">
-      首次点击屏幕任意位置只会播放 open phone，播完且关键音效预热完成后才开放其他交互。<br>
-      这版是按 iPhone Safari 的规则写的。<br>
+      首次点击屏幕任意位置只会播放 open phone，播完后才开放其他交互。<br>
+      这版沿用 FAIZ 的音效加载与播放方式。<br>
       点击任意按钮可选中。方向键移动，Alt + 方向键微调，[ / ] 调宽，- / = 调高，P 输出当前参数。
     </div>
   </div>
 
   <div class="boot-lock" id="bootLock" aria-hidden="true"></div>
-  <audio id="bootAudio" class="hidden-audio" preload="auto" playsinline webkit-playsinline src="assets/open phone.m4a"></audio>
 
 <script>
 (() => {
-  const AUDIO_URLS = {
-    openPhone:  'assets/open phone.m4a',
-    ring:       'assets/ring.m4a',
-    enter:      'assets/enter.m4a',
-    key1:       'assets/key1.m4a',
-    key3:       'assets/key3.m4a',
-    key9:       'assets/key9.m4a',
-    standBy:    'assets/stand by.m4a',
-    complete:   'assets/complete.m4a',
-    error:      'assets/error.m4a',
-    ready:      'assets/ready.m4a',
-    exceed:     'assets/exceed charge.m4a',
-    release:    'assets/release.m4a',
-    weaponHit:  'assets/weaponHit.m4a'
+  /* ------------ 资源（沿用 FAIZ 的自动匹配扩展名方式） ------------ */
+  const BASE = {
+    openPhone: 'assets/open phone',
+    ring:      'assets/ring',
+    enter:     'assets/enter',
+    key1:      'assets/key1',
+    key3:      'assets/key3',
+    key9:      'assets/key9',
+    standBy:   'assets/stand by',
+    complete:  'assets/complete',
+    error:     'assets/error',
+    ready:     'assets/ready',
+    exceed:    'assets/exceed charge',
+    release:   'assets/release',
+    weaponHit: 'assets/weaponHit'
   };
 
-  const TRANSFORM_CODE = '913';
+  const EXT = ['.m4a','.mp3','.wav','.mp4'];
+  const urlMap = {};
 
-  let buf = '';
-  let transformed = false;
-  let armed = false;
-  let readyOnce = false;
-  let ringNode = null;
-  let standNode = null;
-
-  let booting = true;
-  let bootPlayed = false;
-  let bootEnded = false;
-  let warmupDone = false;
-
-  const bootLock = document.getElementById('bootLock');
-  const bootAudio = document.getElementById('bootAudio');
-
-  let ac = null;
-  let master = null;
+  let ac = null, master = null;
   const buffers = new Map();
-  const fetchPromises = new Map();
 
   function ctx(){
     if(ac) return ac;
     const C = window.AudioContext || window.webkitAudioContext;
-    ac = new C({ latencyHint: 'interactive' });
+    ac = new C({ latencyHint:'interactive' });
     master = ac.createGain();
     master.gain.value = 1;
     master.connect(ac.destination);
     return ac;
   }
 
-  async function ensureAudioReady(){
-    const c = ctx();
-    if(c.state === 'suspended'){
-      await c.resume();
-    }
-    return c;
-  }
-
-  function primeFetch(key){
-    if(fetchPromises.has(key)) return fetchPromises.get(key);
-    const url = AUDIO_URLS[key];
-    const p = fetch(url, { cache:'force-cache' })
-      .then(res => {
-        if(!res.ok) throw new Error(`fetch ${res.status}: ${key}`);
-        return res.arrayBuffer();
-      });
-    fetchPromises.set(key, p);
-    return p;
-  }
-
-  async function loadBuffer(key){
-    if(buffers.has(key)) return buffers.get(key);
-    const arr = await primeFetch(key);
-    const buf = await ctx().decodeAudioData(arr.slice(0));
-    buffers.set(key, buf);
-    return buf;
-  }
-
-  async function preloadKeys(keys){
-    await Promise.all(keys.map(async key => {
+  async function resolveUrl(base){
+    if(urlMap[base]) return urlMap[base];
+    for(const ext of EXT){
+      const u = `${base}${ext}`;
       try{
-        await loadBuffer(key);
-      }catch(err){
-        console.error('[audio preload failed]', key, err);
-      }
-    }));
+        const r = await fetch(u, { method:'HEAD', cache:'no-store' });
+        if(r.ok){
+          urlMap[base] = u;
+          return u;
+        }
+      }catch{}
+    }
+    return null;
   }
 
-  function playBuffer(key, { loop = false, onended = null } = {}){
-    const buf = buffers.get(key);
-    if(!buf){
-      console.warn('[playBuffer] missing:', key);
-      return null;
-    }
+  async function load(key){
+    if(buffers.has(key)) return buffers.get(key);
+    const url = await resolveUrl(BASE[key]);
+    if(!url) return null;
 
+    const res = await fetch(url, { cache:'no-store' });
+    if(!res.ok) return null;
+
+    const arr = await res.arrayBuffer();
+    const b = await ctx().decodeAudioData(arr);
+    buffers.set(key, b);
+    return b;
+  }
+
+  function play(key, {loop=false} = {}){
+    const b = buffers.get(key);
+    if(!b) return null;
     const s = ctx().createBufferSource();
-    s.buffer = buf;
+    s.buffer = b;
     s.loop = !!loop;
     s.connect(master);
-
-    if(onended){
-      s.onended = onended;
-    }
-
-    s.start(0);
+    s.start();
     return s;
   }
 
-  function stopNode(node){
-    if(!node) return;
-    try{ node.stop(0); }catch{}
-  }
-
-  function interruptRing(){
-    if(ringNode){
-      stopNode(ringNode);
-      ringNode = null;
+  function stop(node){
+    if(node && node.stop){
+      try{ node.stop(); }catch{}
     }
   }
 
-  function maybeFinishBoot(){
-    if(!booting) return;
-    if(!(bootEnded && warmupDone)) return;
-    booting = false;
-    bootLock.style.display = 'none';
-  }
+  /* ------------ 状态 ------------ */
+  const TRANSFORM_CODE = '913';
 
-  async function warmupCritical(){
-    await preloadKeys([
-      'key1','key3','key9',
-      'enter','standBy','complete',
-      'error','ready','exceed',
-      'release','weaponHit','ring'
-    ]);
-    warmupDone = true;
-    maybeFinishBoot();
+  let buf = '';
+  let transformed = false;
+  let armed = false;
+  let readyOnce = false;
+
+  let ringNode = null;
+  let standNode = null;
+
+  let booting = true;
+  let bootPlayed = false;
+
+  const bootLock = document.getElementById('bootLock');
+
+  function interruptRing(){
+    if(ringNode){
+      stop(ringNode);
+      ringNode = null;
+    }
   }
 
   async function startBoot(){
     if(bootPlayed) return;
     bootPlayed = true;
 
-    await ensureAudioReady();
-
-    // 提前开始拉取关键音效
-    warmupCritical();
-
-    // iPhone Safari 上开机音直接用 HTMLAudio，最贴近用户手势链路
+    const c = ctx();
     try{
-      bootAudio.currentTime = 0;
-      await bootAudio.play();
-    }catch(err){
-      console.error('[bootAudio play failed]', err);
-      // 即便失败，也不要永远锁死
-      bootEnded = true;
-      maybeFinishBoot();
-      return;
-    }
+      if(c.state === 'suspended') await c.resume();
+    }catch{}
 
-    bootAudio.onended = () => {
-      bootEnded = true;
-      maybeFinishBoot();
+    await Promise.all(Object.keys(BASE).map(k => load(k).catch(() => null)));
+
+    const s = play('openPhone');
+    const done = () => {
+      booting = false;
+      bootLock.style.display = 'none';
     };
 
-    // 兜底，防止 ended 不触发
-    setTimeout(() => {
-      if (!bootEnded) {
-        bootEnded = true;
-        maybeFinishBoot();
-      }
-    }, 5000);
+    if(s){
+      s.onended = done;
+    }else{
+      setTimeout(done, 1200);
+    }
   }
 
   function bootTrap(e){
@@ -383,9 +333,9 @@
     startBoot();
   }
 
-  // 对 iPhone Safari，touchstart 比 click 更直接
-  bootLock.addEventListener('touchstart', bootTrap, { capture:true, passive:false });
+  /* 开机阶段，任何点按都只触发 open phone */
   bootLock.addEventListener('pointerdown', bootTrap, true);
+  bootLock.addEventListener('touchstart', bootTrap, { capture:true, passive:false });
   bootLock.addEventListener('click', bootTrap, true);
 
   function getDigitSound(k){
@@ -399,7 +349,7 @@
     if(booting) return;
     interruptRing();
     buf = (buf + k).slice(-3);
-    playBuffer(getDigitSound(k));
+    play(getDigitSound(k));
   }
 
   function onEnter(){
@@ -408,47 +358,45 @@
 
     if(transformed){
       if(!readyOnce){
-        playBuffer('ready');
+        play('ready');
         readyOnce = true;
         return;
       }
-      playBuffer('enter');
-      playBuffer('exceed');
+      play('enter');
+      play('exceed');
       readyOnce = false;
       return;
     }
 
     if(armed){
-      stopNode(standNode);
+      stop(standNode);
       standNode = null;
-      const s = playBuffer('complete', {
-        onended: () => {
-          transformed = true;
-          readyOnce = false;
-          armed = false;
-          buf = '';
-        }
-      });
-      if(!s){
+
+      const s = play('complete');
+      const done = () => {
         transformed = true;
         readyOnce = false;
         armed = false;
         buf = '';
-      }
+      };
+
+      if(s) s.onended = done;
+      else setTimeout(done, 380);
       return;
     }
 
-    playBuffer('enter');
+    play('enter');
 
     if(buf === TRANSFORM_CODE){
-      stopNode(standNode);
-      standNode = playBuffer('standBy');
+      stop(standNode);
+      standNode = play('standBy');
+      if(standNode) standNode.onended = () => standNode = null;
       armed = true;
       return;
     }
 
     if(buf.length === 3){
-      playBuffer('error');
+      play('error');
       buf = '';
       armed = false;
       readyOnce = false;
@@ -458,15 +406,15 @@
   function onStar(){
     if(booting) return;
     interruptRing();
-    if(transformed) playBuffer('weaponHit');
-    else playBuffer('key9');
+    if(transformed) play('weaponHit');
+    else play('key9');
     buf = (buf + '*').slice(-3);
   }
 
   function ringStart(){
     if(booting) return;
     interruptRing();
-    ringNode = playBuffer('ring', { loop:true });
+    ringNode = play('ring', { loop:true });
   }
 
   function ringStop(){
@@ -479,36 +427,25 @@
     interruptRing();
 
     if(!transformed){
-      playBuffer('key9');
+      play('key9');
       buf = '';
       return;
     }
 
-    playBuffer('key9');
-    const s = playBuffer('release', {
-      onended: () => {
-        transformed = false;
-        armed = false;
-        readyOnce = false;
-        buf = '';
-      }
-    });
-
-    if(!s){
+    play('key9');
+    const s = play('release');
+    const done = () => {
       transformed = false;
       armed = false;
       readyOnce = false;
       buf = '';
-    }
+    };
+
+    if(s) s.onended = done;
+    else done();
   }
 
-  // 页面一加载就提前拉取，减少首次等待
-  window.addEventListener('load', () => {
-    Object.keys(AUDIO_URLS).forEach(key => {
-      try{ primeFetch(key); }catch{}
-    });
-  });
-
+  /* ------------ 绑定 ------------ */
   document.querySelectorAll('.hit[data-k]').forEach(b => {
     const k = b.dataset.k;
     if(k === '*') b.addEventListener('click', onStar);
@@ -520,6 +457,7 @@
   document.getElementById('btnStop').addEventListener('click', ringStop);
   document.getElementById('btnClear').addEventListener('click', onClear);
 
+  /* ------------ 每个按钮独立摆放 ------------ */
   function getPct(name){
     return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
   }
@@ -575,11 +513,11 @@
     const varName = selectedVar(suffix);
     if(!varName) return;
     setVar(varName, getVar(varName) + delta);
-    if (typeof window.place === 'function') window.place();
+    if(typeof window.place === 'function') window.place();
   }
 
   window.addEventListener('keydown', (e) => {
-    if (!selected) return;
+    if(!selected) return;
     const step = e.altKey ? 0.1 : 0.3;
 
     switch (e.key) {
@@ -630,7 +568,7 @@
   });
 
   const enter = document.querySelector('[data-btn="enter"]');
-  if (enter) selectButton(enter);
+  if(enter) selectButton(enter);
 })();
 </script>
 </body>
