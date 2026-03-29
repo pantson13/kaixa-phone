@@ -92,10 +92,11 @@
     --btn-hash-w:     13.1%;
     --btn-hash-h:     4.15%;
 
-    /* 左下角 open phone 圆形按钮 */
+    /* OPEN 按钮：现在也是独立方形，可单独改位置和大小 */
     --btn-power-left: 8%;
     --btn-power-top:  90.5%;
-    --btn-power-size: 10%;
+    --btn-power-w:    10%;
+    --btn-power-h:    10%;
   }
 
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -116,7 +117,6 @@
     transform-origin:center;
     cursor:pointer;
 
-    /* 调试框 */
     background:rgba(255,0,0,.22);
     border:1.5px dashed #00ffff;
     border-radius:8px;
@@ -132,15 +132,6 @@
     color:#00ffff;
     text-shadow:0 0 3px #000;
     pointer-events:none;
-  }
-
-  .hit.selected{
-    border:2px solid #ffe600;
-    box-shadow:0 0 0 2px rgba(0,0,0,.55) inset, 0 0 10px rgba(255,230,0,.7);
-  }
-
-  .hit.circle{
-    border-radius:999px;
   }
 
   .tip{
@@ -180,19 +171,18 @@
       <button class="hit" data-k="0" aria-label="0" data-btn="0"></button>
       <button class="hit" data-k="#" aria-label="#" data-btn="hash"></button>
 
-      <!-- 左下角 open phone 按钮 -->
-      <button class="hit circle" id="btnPower" aria-label="OPEN" data-btn="power"></button>
+      <!-- OPEN 按钮：方形 -->
+      <button class="hit" id="btnPower" aria-label="OPEN" data-btn="power"></button>
     </div>
 
     <div class="tip">
-      点左下角 OPEN 按钮触发 open phone。播完后才开放其他交互。<br>
+      OPEN 按钮可重复触发 open phone。变身后禁用，解除变身后恢复。<br>
       这版继续沿用 FAIZ 的音效加载与播放方式。
     </div>
   </div>
 
 <script>
 (() => {
-  /* ------------ 严格对齐 FAIZ 的加载方式 ------------ */
   const BASE = {
     openPhone: 'assets/open phone',
     ring:      'assets/ring',
@@ -271,7 +261,6 @@
     }
   }
 
-  /* ------------ KAIXA 逻辑 ------------ */
   const TRANSFORM_CODE = '913';
 
   let buf = '';
@@ -280,8 +269,7 @@
   let readyOnce = false;
   let ringNode = null;
   let standNode = null;
-  let booting = true;
-  let bootStarted = false;
+  let audioReady = false;
 
   function interruptRing(){
     if(ringNode){
@@ -290,25 +278,22 @@
     }
   }
 
-  async function preloadAll(){
+  async function ensureReady(){
     const c = ctx();
     try{
       if(c.state === 'suspended') await c.resume();
     }catch{}
-    await Promise.all(Object.keys(BASE).map(k => load(k).catch(()=>null)));
+
+    if(!audioReady){
+      await Promise.all(Object.keys(BASE).map(k => load(k).catch(()=>null)));
+      audioReady = true;
+    }
   }
 
-  async function startBoot(){
-    if(bootStarted) return;
-    bootStarted = true;
-
-    await preloadAll();
-
-    const s = play('openPhone');
-    const done = () => { booting = false; };
-
-    if(s) s.onended = done;
-    else setTimeout(done, 1200);
+  async function onPower(){
+    if(transformed) return;
+    await ensureReady();
+    play('openPhone');
   }
 
   function getDigitSound(k){
@@ -319,14 +304,14 @@
   }
 
   function pressDigit(k){
-    if(booting) return;
+    if(!audioReady) return;
     interruptRing();
     buf = (buf + k).slice(-3);
     play(getDigitSound(k));
   }
 
   function onEnter(){
-    if(booting) return;
+    if(!audioReady) return;
     interruptRing();
 
     if(transformed){
@@ -375,7 +360,7 @@
   }
 
   function onStar(){
-    if(booting) return;
+    if(!audioReady) return;
     interruptRing();
     if(transformed) play('weaponHit');
     else play('key9');
@@ -383,18 +368,18 @@
   }
 
   function ringStart(){
-    if(booting) return;
+    if(!audioReady) return;
     interruptRing();
     ringNode = play('ring',{loop:true});
   }
 
   function ringStop(){
-    if(booting) return;
+    if(!audioReady) return;
     interruptRing();
   }
 
   function onClear(){
-    if(booting) return;
+    if(!audioReady) return;
     interruptRing();
 
     if(!transformed){
@@ -415,7 +400,6 @@
     else done();
   }
 
-  /* ------------ 绑定 ------------ */
   document.querySelectorAll('.hit[data-k]').forEach(b => {
     const k = b.dataset.k;
     if(k === '*') b.addEventListener('click', onStar);
@@ -426,27 +410,22 @@
   document.getElementById('btnRing').addEventListener('click', ringStart);
   document.getElementById('btnStop').addEventListener('click', ringStop);
   document.getElementById('btnClear').addEventListener('click', onClear);
-  document.getElementById('btnPower').addEventListener('click', startBoot);
+  document.getElementById('btnPower').addEventListener('click', onPower);
 
-  /* ------------ 定位 ------------ */
   function getPct(name){
     return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
   }
 
   function setRectByName(el, name){
+    el.style.left   = getPct(`--btn-${name}-left`) + '%';
+    el.style.top    = getPct(`--btn-${name}-top`) + '%';
+
     if(name === 'power'){
-      const left = getPct('--btn-power-left');
-      const top  = getPct('--btn-power-top');
-      const size = getPct('--btn-power-size');
-      el.style.left = left + '%';
-      el.style.top = top + '%';
-      el.style.width = size + '%';
-      el.style.height = size + '%';
+      el.style.width  = getPct(`--btn-${name}-w`) + '%';
+      el.style.height = getPct(`--btn-${name}-h`) + '%';
       return;
     }
 
-    el.style.left   = getPct(`--btn-${name}-left`) + '%';
-    el.style.top    = getPct(`--btn-${name}-top`) + '%';
     el.style.width  = getPct(`--btn-${name}-w`) + '%';
     el.style.height = getPct(`--btn-${name}-h`) + '%';
   }
