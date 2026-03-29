@@ -119,7 +119,6 @@
   }
   .hit:active{ transform:scale(.98); }
 
-  /* 隐藏所有调试视觉 */
   .hit::after{
     display:none;
   }
@@ -219,76 +218,109 @@
 
   const bootLock = document.getElementById('bootLock');
 
-  /* ------------ Web Audio：低延迟按键音 ------------ */
-  let ac = null;
-  let master = null;
-  const buffers = new Map();
+  // 更稳的 HTMLAudio 池方案
+  const audioPools = new Map();
+  const DEFAULT_POOL = 4;
 
-  function getCtx(){
-    if(ac) return ac;
-    const C = window.AudioContext || window.webkitAudioContext;
-    ac = new C({ latencyHint: 'interactive' });
-    master = ac.createGain();
-    master.gain.value = 1;
-    master.connect(ac.destination);
-    return ac;
+  function createAudio(url){
+    const a = new Audio(url);
+    a.preload = 'auto';
+    a.playsInline = true;
+    a.load();
+    return a;
   }
 
-  async function ensureCtxReady(){
-    const c = getCtx();
-    if(c.state === 'suspended'){
-      try{ await c.resume(); }catch{}
-    }
-    return c;
+  function getPoolSize(key){
+    if (key === 'key1' || key === 'key3' || key === 'key9') return 8;
+    if (key === 'enter' || key === 'weaponHit' || key === 'error') return 5;
+    return DEFAULT_POOL;
   }
 
-  async function loadBuffer(key){
-    if(buffers.has(key)) return buffers.get(key);
+  function ensurePool(key){
     const url = AUDIO_URLS[key];
     if(!url) return null;
+    if(audioPools.has(key)) return audioPools.get(key);
 
-    const c = getCtx();
-    const res = await fetch(url, { cache: 'force-cache' });
-    if(!res.ok) throw new Error(`fetch failed: ${key} ${res.status}`);
-    const arr = await res.arrayBuffer();
-    const buf = await c.decodeAudioData(arr.slice(0));
-    buffers.set(key, buf);
-    return buf;
-  }
-
-  async function warmBuffers(keys){
-    await Promise.all(keys.map(k => loadBuffer(k).catch(() => null)));
-  }
-
-  function playBuffer(key, { loop = false, onended = null } = {}){
-    const c = getCtx();
-    const buf = buffers.get(key);
-    if(!buf) return null;
-
-    const src = c.createBufferSource();
-    src.buffer = buf;
-    src.loop = !!loop;
-    src.connect(master);
-    if(onended){
-      src.onended = onended;
+    const size = getPoolSize(key);
+    const pool = [];
+    for(let i = 0; i < size; i++){
+      pool.push(createAudio(url));
     }
-    src.start(0);
-    return src;
+    audioPools.set(key, pool);
+    return pool;
   }
 
-  function stopNode(node){
-    if(!node) return;
-    try{ node.stop(0); }catch{}
+  function warmPool(key){
+    const pool = ensurePool(key);
+    if(!pool) return;
+    pool.forEach(a => {
+      try { a.load(); } catch {}
+    });
   }
 
   function preloadRest(){
-    const keys = Object.keys(AUDIO_URLS).filter(k => k !== 'openPhone' && AUDIO_URLS[k]);
-    warmBuffers(keys);
+    Object.keys(AUDIO_URLS)
+      .filter(k => k !== 'openPhone' && AUDIO_URLS[k])
+      .forEach(k => warmPool(k));
+  }
+
+  function getAvailableAudio(key){
+    const pool = ensurePool(key);
+    if(!pool) return null;
+
+    let node = pool.find(a => a.paused || a.ended);
+    if(node) return node;
+
+    node = pool[0];
+    try{
+      node.pause();
+      node.currentTime = 0;
+    }catch{}
+    return node;
+  }
+
+  function play(key, {loop = false, onended = null} = {}){
+    const node = getAvailableAudio(key);
+    if(!node){
+      console.warn('[play] missing audio:', key);
+      return null;
+    }
+
+    try{
+      node.pause();
+      node.currentTime = 0;
+    }catch{}
+
+    node.loop = !!loop;
+    node.onended = null;
+
+    if(onended){
+      node.onended = onended;
+    }
+
+    const p = node.play();
+    if(p && typeof p.catch === 'function'){
+      p.catch(err => {
+        console.error('[play] failed:', key, err);
+      });
+    }
+
+    return node;
+  }
+
+  function stop(node){
+    if(!node) return;
+    try{
+      node.pause();
+      node.currentTime = 0;
+      node.loop = false;
+      node.onended = null;
+    }catch{}
   }
 
   function interruptRing(){
     if(ringNode){
-      stopNode(ringNode);
+      stop(ringNode);
       ringNode = null;
     }
   }
@@ -299,14 +331,13 @@
     preloadRest();
   }
 
-  async function startBoot(){
+  function startBoot(){
     if(bootPlayed) return;
     bootPlayed = true;
 
-    await ensureCtxReady();
-    await warmBuffers(['openPhone']);
+    warmPool('openPhone');
 
-    const node = playBuffer('openPhone', {
+    const node = play('openPhone', {
       onended: finishBoot
     });
 
@@ -341,16 +372,11 @@
     return 'key9';
   }
 
-  function safePlay(key, opts = {}){
-    const node = playBuffer(key, opts);
-    return node;
-  }
-
   function pressDigit(k){
     if(booting) return;
     interruptRing();
     buf = (buf + k).slice(-3);
-    safePlay(getDigitSound(k));
+    play(getDigitSound(k));
   }
 
   function onEnter(){
@@ -359,20 +385,20 @@
 
     if(transformed){
       if(!readyOnce){
-        safePlay('ready');
+        play('ready');
         readyOnce = true;
         return;
       }
-      safePlay('enter');
-      safePlay('exceed');
+      play('enter');
+      play('exceed');
       readyOnce = false;
       return;
     }
 
     if(armed){
-      stopNode(standNode);
+      stop(standNode);
       standNode = null;
-      const s = safePlay('complete', {
+      const s = play('complete', {
         onended: () => {
           transformed = true;
           readyOnce = false;
@@ -389,17 +415,17 @@
       return;
     }
 
-    safePlay('enter');
+    play('enter');
 
     if(buf === TRANSFORM_CODE){
-      stopNode(standNode);
-      standNode = safePlay('standBy');
+      stop(standNode);
+      standNode = play('standBy');
       armed = true;
       return;
     }
 
     if(buf.length === 3){
-      safePlay('error');
+      play('error');
       buf = '';
       armed = false;
       readyOnce = false;
@@ -409,15 +435,15 @@
   function onStar(){
     if(booting) return;
     interruptRing();
-    if(transformed) safePlay('weaponHit');
-    else safePlay('key9');
+    if(transformed) play('weaponHit');
+    else play('key9');
     buf = (buf + '*').slice(-3);
   }
 
   function ringStart(){
     if(booting) return;
     interruptRing();
-    ringNode = safePlay('ring', { loop:true });
+    ringNode = play('ring', { loop:true });
   }
 
   function ringStop(){
@@ -430,13 +456,13 @@
     interruptRing();
 
     if(!transformed){
-      safePlay('key9');
+      play('key9');
       buf = '';
       return;
     }
 
-    safePlay('key9');
-    const s = safePlay('release', {
+    play('key9');
+    const s = play('release', {
       onended: () => {
         transformed = false;
         armed = false;
