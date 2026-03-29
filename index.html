@@ -91,6 +91,11 @@
     --btn-hash-top:   81%;
     --btn-hash-w:     13.1%;
     --btn-hash-h:     4.15%;
+
+    /* 左下角 open phone 圆形按钮 */
+    --btn-power-left: 8%;
+    --btn-power-top:  90.5%;
+    --btn-power-size: 10%;
   }
 
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -129,6 +134,15 @@
     pointer-events:none;
   }
 
+  .hit.selected{
+    border:2px solid #ffe600;
+    box-shadow:0 0 0 2px rgba(0,0,0,.55) inset, 0 0 10px rgba(255,230,0,.7);
+  }
+
+  .hit.circle{
+    border-radius:999px;
+  }
+
   .tip{
     width:min(94vw, 520px);
     margin:6px auto 0;
@@ -165,11 +179,14 @@
       <button class="hit" data-k="*" aria-label="*" data-btn="star"></button>
       <button class="hit" data-k="0" aria-label="0" data-btn="0"></button>
       <button class="hit" data-k="#" aria-label="#" data-btn="hash"></button>
+
+      <!-- 左下角 open phone 按钮 -->
+      <button class="hit circle" id="btnPower" aria-label="OPEN" data-btn="power"></button>
     </div>
 
     <div class="tip">
-      首次点击屏幕任意位置只会播放 open phone，播完后才开放其他交互。<br>
-      这版去掉了额外 boot 锁层，启动方式和 FAIZ 一致。
+      点左下角 OPEN 按钮触发 open phone。播完后才开放其他交互。<br>
+      这版继续沿用 FAIZ 的音效加载与播放方式。
     </div>
   </div>
 
@@ -264,6 +281,7 @@
   let ringNode = null;
   let standNode = null;
   let booting = true;
+  let bootStarted = false;
 
   function interruptRing(){
     if(ringNode){
@@ -272,30 +290,26 @@
     }
   }
 
-  async function unlock(){
+  async function preloadAll(){
     const c = ctx();
     try{
       if(c.state === 'suspended') await c.resume();
     }catch{}
-
     await Promise.all(Object.keys(BASE).map(k => load(k).catch(()=>null)));
-    const s = play('openPhone');
+  }
 
+  async function startBoot(){
+    if(bootStarted) return;
+    bootStarted = true;
+
+    await preloadAll();
+
+    const s = play('openPhone');
     const done = () => { booting = false; };
+
     if(s) s.onended = done;
     else setTimeout(done, 1200);
   }
-
-  const unlockOnce = () => {
-    unlock();
-    document.removeEventListener('pointerdown', unlockOnce, true);
-    document.removeEventListener('touchend', unlockOnce, true);
-    document.removeEventListener('click', unlockOnce, true);
-  };
-
-  ['pointerdown','touchend','click'].forEach(ev =>
-    document.addEventListener(ev, unlockOnce, { once:true, passive:true })
-  );
 
   function getDigitSound(k){
     if(k === '9') return 'key9';
@@ -412,6 +426,7 @@
   document.getElementById('btnRing').addEventListener('click', ringStart);
   document.getElementById('btnStop').addEventListener('click', ringStop);
   document.getElementById('btnClear').addEventListener('click', onClear);
+  document.getElementById('btnPower').addEventListener('click', startBoot);
 
   /* ------------ 定位 ------------ */
   function getPct(name){
@@ -419,6 +434,17 @@
   }
 
   function setRectByName(el, name){
+    if(name === 'power'){
+      const left = getPct('--btn-power-left');
+      const top  = getPct('--btn-power-top');
+      const size = getPct('--btn-power-size');
+      el.style.left = left + '%';
+      el.style.top = top + '%';
+      el.style.width = size + '%';
+      el.style.height = size + '%';
+      return;
+    }
+
     el.style.left   = getPct(`--btn-${name}-left`) + '%';
     el.style.top    = getPct(`--btn-${name}-top`) + '%';
     el.style.width  = getPct(`--btn-${name}-w`) + '%';
