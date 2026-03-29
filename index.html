@@ -154,6 +154,10 @@
     background:transparent;
     cursor:pointer;
   }
+
+  .hidden-audio{
+    display:none;
+  }
 </style>
 </head>
 <body>
@@ -187,17 +191,17 @@
     </div>
 
     <div class="tip">
-      首次点击屏幕任意位置只会播放 open phone，播完后才开放其他交互。<br>
-      打开控制台可以看到音频加载日志。<br>
+      首次点击屏幕任意位置只会播放 open phone，播完且关键音效预热完成后才开放其他交互。<br>
+      这版是按 iPhone Safari 的规则写的。<br>
       点击任意按钮可选中。方向键移动，Alt + 方向键微调，[ / ] 调宽，- / = 调高，P 输出当前参数。
     </div>
   </div>
 
   <div class="boot-lock" id="bootLock" aria-hidden="true"></div>
+  <audio id="bootAudio" class="hidden-audio" preload="auto" playsinline webkit-playsinline src="assets/open phone.m4a"></audio>
 
 <script>
 (() => {
-  /* 全部统一改成 m4a */
   const AUDIO_URLS = {
     openPhone:  'assets/open phone.m4a',
     ring:       'assets/ring.m4a',
@@ -211,8 +215,7 @@
     ready:      'assets/ready.m4a',
     exceed:     'assets/exceed charge.m4a',
     release:    'assets/release.m4a',
-    weaponHit:  'assets/weaponHit.m4a',
-    combo3821:  null
+    weaponHit:  'assets/weaponHit.m4a'
   };
 
   const TRANSFORM_CODE = '913';
@@ -226,12 +229,16 @@
 
   let booting = true;
   let bootPlayed = false;
+  let bootEnded = false;
+  let warmupDone = false;
 
   const bootLock = document.getElementById('bootLock');
+  const bootAudio = document.getElementById('bootAudio');
 
   let ac = null;
   let master = null;
   const buffers = new Map();
+  const fetchPromises = new Map();
 
   function ctx(){
     if(ac) return ac;
@@ -246,41 +253,39 @@
   async function ensureAudioReady(){
     const c = ctx();
     if(c.state === 'suspended'){
-      try{
-        await c.resume();
-        console.log('[audio] resumed');
-      }catch(err){
-        console.error('[audio] resume failed', err);
-      }
+      await c.resume();
     }
     return c;
   }
 
+  function primeFetch(key){
+    if(fetchPromises.has(key)) return fetchPromises.get(key);
+    const url = AUDIO_URLS[key];
+    const p = fetch(url, { cache:'force-cache' })
+      .then(res => {
+        if(!res.ok) throw new Error(`fetch ${res.status}: ${key}`);
+        return res.arrayBuffer();
+      });
+    fetchPromises.set(key, p);
+    return p;
+  }
+
   async function loadBuffer(key){
     if(buffers.has(key)) return buffers.get(key);
-    const url = AUDIO_URLS[key];
-    if(!url){
-      console.warn('[audio] url missing:', key);
-      return null;
-    }
-
-    try{
-      const res = await fetch(url, { cache:'force-cache' });
-      if(!res.ok) throw new Error(`fetch ${res.status}`);
-
-      const arr = await res.arrayBuffer();
-      const buf = await ctx().decodeAudioData(arr.slice(0));
-      buffers.set(key, buf);
-      console.log('[audio] loaded:', key, url);
-      return buf;
-    }catch(err){
-      console.error('[audio] load failed:', key, url, err);
-      return null;
-    }
+    const arr = await primeFetch(key);
+    const buf = await ctx().decodeAudioData(arr.slice(0));
+    buffers.set(key, buf);
+    return buf;
   }
 
   async function preloadKeys(keys){
-    await Promise.all(keys.map(k => loadBuffer(k)));
+    await Promise.all(keys.map(async key => {
+      try{
+        await loadBuffer(key);
+      }catch(err){
+        console.error('[audio preload failed]', key, err);
+      }
+    }));
   }
 
   function playBuffer(key, { loop = false, onended = null } = {}){
@@ -299,14 +304,8 @@
       s.onended = onended;
     }
 
-    try{
-      s.start(0);
-      console.log('[playBuffer] start:', key);
-      return s;
-    }catch(err){
-      console.error('[playBuffer] failed:', key, err);
-      return null;
-    }
+    s.start(0);
+    return s;
   }
 
   function stopNode(node){
@@ -321,47 +320,55 @@
     }
   }
 
-  function finishBoot(){
+  function maybeFinishBoot(){
+    if(!booting) return;
+    if(!(bootEnded && warmupDone)) return;
     booting = false;
     bootLock.style.display = 'none';
-    console.log('[boot] finished');
   }
 
-  async function startBoot(){
-    if(bootPlayed) return;
-    bootPlayed = true;
-    console.log('[boot] start');
-
-    await ensureAudioReady();
-
-    await preloadKeys(['openPhone']);
-
-    const warmup = preloadKeys([
+  async function warmupCritical(){
+    await preloadKeys([
       'key1','key3','key9',
       'enter','standBy','complete',
       'error','ready','exceed',
       'release','weaponHit','ring'
     ]);
+    warmupDone = true;
+    maybeFinishBoot();
+  }
 
-    const node = playBuffer('openPhone', {
-      onended: async () => {
-        try{ await warmup; }catch{}
-        finishBoot();
-      }
-    });
+  async function startBoot(){
+    if(bootPlayed) return;
+    bootPlayed = true;
 
-    if(!node){
-      console.warn('[boot] openPhone not started');
-      try{ await warmup; }catch{}
-      setTimeout(finishBoot, 1200);
+    await ensureAudioReady();
+
+    // 提前开始拉取关键音效
+    warmupCritical();
+
+    // iPhone Safari 上开机音直接用 HTMLAudio，最贴近用户手势链路
+    try{
+      bootAudio.currentTime = 0;
+      await bootAudio.play();
+    }catch(err){
+      console.error('[bootAudio play failed]', err);
+      // 即便失败，也不要永远锁死
+      bootEnded = true;
+      maybeFinishBoot();
       return;
     }
 
-    setTimeout(async () => {
-      if (booting) {
-        console.warn('[boot] fallback finish');
-        try{ await warmup; }catch{}
-        finishBoot();
+    bootAudio.onended = () => {
+      bootEnded = true;
+      maybeFinishBoot();
+    };
+
+    // 兜底，防止 ended 不触发
+    setTimeout(() => {
+      if (!bootEnded) {
+        bootEnded = true;
+        maybeFinishBoot();
       }
     }, 5000);
   }
@@ -376,9 +383,10 @@
     startBoot();
   }
 
+  // 对 iPhone Safari，touchstart 比 click 更直接
+  bootLock.addEventListener('touchstart', bootTrap, { capture:true, passive:false });
   bootLock.addEventListener('pointerdown', bootTrap, true);
   bootLock.addEventListener('click', bootTrap, true);
-  bootLock.addEventListener('touchend', bootTrap, true);
 
   function getDigitSound(k){
     if(k === '9') return 'key9';
@@ -493,6 +501,13 @@
       buf = '';
     }
   }
+
+  // 页面一加载就提前拉取，减少首次等待
+  window.addEventListener('load', () => {
+    Object.keys(AUDIO_URLS).forEach(key => {
+      try{ primeFetch(key); }catch{}
+    });
+  });
 
   document.querySelectorAll('.hit[data-k]').forEach(b => {
     const k = b.dataset.k;
