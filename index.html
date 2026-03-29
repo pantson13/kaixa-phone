@@ -219,112 +219,76 @@
 
   const bootLock = document.getElementById('bootLock');
 
-  // 每个音效准备一个小池，减少按下到发声的延迟
-  const audioPools = new Map();
-  const POOL_SIZE_DEFAULT = 4;
+  /* ------------ Web Audio：低延迟按键音 ------------ */
+  let ac = null;
+  let master = null;
+  const buffers = new Map();
 
-  function createAudio(url){
-    const a = new Audio(url);
-    a.preload = 'auto';
-    a.playsInline = true;
-    a.load();
-    return a;
+  function getCtx(){
+    if(ac) return ac;
+    const C = window.AudioContext || window.webkitAudioContext;
+    ac = new C({ latencyHint: 'interactive' });
+    master = ac.createGain();
+    master.gain.value = 1;
+    master.connect(ac.destination);
+    return ac;
   }
 
-  function getPoolSize(key){
-    // 高频短音给大一点的池
-    if (key === 'key1' || key === 'key3' || key === 'key9') return 6;
-    if (key === 'enter' || key === 'weaponHit') return 4;
-    return POOL_SIZE_DEFAULT;
+  async function ensureCtxReady(){
+    const c = getCtx();
+    if(c.state === 'suspended'){
+      try{ await c.resume(); }catch{}
+    }
+    return c;
   }
 
-  function ensurePool(key){
+  async function loadBuffer(key){
+    if(buffers.has(key)) return buffers.get(key);
     const url = AUDIO_URLS[key];
     if(!url) return null;
-    if(audioPools.has(key)) return audioPools.get(key);
 
-    const size = getPoolSize(key);
-    const pool = [];
-    for(let i = 0; i < size; i++){
-      pool.push(createAudio(url));
-    }
-    audioPools.set(key, pool);
-    return pool;
+    const c = getCtx();
+    const res = await fetch(url, { cache: 'force-cache' });
+    if(!res.ok) throw new Error(`fetch failed: ${key} ${res.status}`);
+    const arr = await res.arrayBuffer();
+    const buf = await c.decodeAudioData(arr.slice(0));
+    buffers.set(key, buf);
+    return buf;
   }
 
-  function warmPool(key){
-    const pool = ensurePool(key);
-    if(!pool) return;
-    pool.forEach(a => {
-      try{ a.load(); }catch{}
-    });
+  async function warmBuffers(keys){
+    await Promise.all(keys.map(k => loadBuffer(k).catch(() => null)));
+  }
+
+  function playBuffer(key, { loop = false, onended = null } = {}){
+    const c = getCtx();
+    const buf = buffers.get(key);
+    if(!buf) return null;
+
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = !!loop;
+    src.connect(master);
+    if(onended){
+      src.onended = onended;
+    }
+    src.start(0);
+    return src;
+  }
+
+  function stopNode(node){
+    if(!node) return;
+    try{ node.stop(0); }catch{}
   }
 
   function preloadRest(){
-    Object.keys(AUDIO_URLS)
-      .filter(k => k !== 'openPhone' && AUDIO_URLS[k])
-      .forEach(k => warmPool(k));
-  }
-
-  function getAvailableAudio(key){
-    const pool = ensurePool(key);
-    if(!pool) return null;
-
-    // 先找空闲的
-    let node = pool.find(a => a.paused || a.ended);
-    if(node) return node;
-
-    // 都在播放时，强行复用最前一个，保证响应速度
-    node = pool[0];
-    try{
-      node.pause();
-      node.currentTime = 0;
-    }catch{}
-    return node;
-  }
-
-  function play(key, {loop = false, onended = null} = {}){
-    const node = getAvailableAudio(key);
-    if(!node){
-      console.warn('[play] missing audio:', key);
-      return null;
-    }
-
-    try{
-      node.pause();
-      node.currentTime = 0;
-    }catch{}
-
-    node.loop = !!loop;
-    node.onended = null;
-
-    if(onended){
-      node.onended = onended;
-    }
-
-    const p = node.play();
-    if(p && typeof p.catch === 'function'){
-      p.catch(err => {
-        console.error('[play] failed:', key, err);
-      });
-    }
-
-    return node;
-  }
-
-  function stop(node){
-    if(!node) return;
-    try{
-      node.pause();
-      node.currentTime = 0;
-      node.loop = false;
-      node.onended = null;
-    }catch{}
+    const keys = Object.keys(AUDIO_URLS).filter(k => k !== 'openPhone' && AUDIO_URLS[k]);
+    warmBuffers(keys);
   }
 
   function interruptRing(){
     if(ringNode){
-      stop(ringNode);
+      stopNode(ringNode);
       ringNode = null;
     }
   }
@@ -335,14 +299,14 @@
     preloadRest();
   }
 
-  function startBoot(){
+  async function startBoot(){
     if(bootPlayed) return;
     bootPlayed = true;
 
-    // 先确保开机音本身也预热
-    warmPool('openPhone');
+    await ensureCtxReady();
+    await warmBuffers(['openPhone']);
 
-    const node = play('openPhone', {
+    const node = playBuffer('openPhone', {
       onended: finishBoot
     });
 
@@ -351,7 +315,6 @@
       return;
     }
 
-    // 防止 ended 没触发时永远锁死
     setTimeout(() => {
       if (booting) finishBoot();
     }, 2500);
@@ -378,11 +341,16 @@
     return 'key9';
   }
 
+  function safePlay(key, opts = {}){
+    const node = playBuffer(key, opts);
+    return node;
+  }
+
   function pressDigit(k){
     if(booting) return;
     interruptRing();
     buf = (buf + k).slice(-3);
-    play(getDigitSound(k));
+    safePlay(getDigitSound(k));
   }
 
   function onEnter(){
@@ -391,20 +359,20 @@
 
     if(transformed){
       if(!readyOnce){
-        play('ready');
+        safePlay('ready');
         readyOnce = true;
         return;
       }
-      play('enter');
-      play('exceed');
+      safePlay('enter');
+      safePlay('exceed');
       readyOnce = false;
       return;
     }
 
     if(armed){
-      stop(standNode);
+      stopNode(standNode);
       standNode = null;
-      const s = play('complete', {
+      const s = safePlay('complete', {
         onended: () => {
           transformed = true;
           readyOnce = false;
@@ -421,17 +389,17 @@
       return;
     }
 
-    play('enter');
+    safePlay('enter');
 
     if(buf === TRANSFORM_CODE){
-      stop(standNode);
-      standNode = play('standBy');
+      stopNode(standNode);
+      standNode = safePlay('standBy');
       armed = true;
       return;
     }
 
     if(buf.length === 3){
-      play('error');
+      safePlay('error');
       buf = '';
       armed = false;
       readyOnce = false;
@@ -441,15 +409,15 @@
   function onStar(){
     if(booting) return;
     interruptRing();
-    if(transformed) play('weaponHit');
-    else play('key9');
+    if(transformed) safePlay('weaponHit');
+    else safePlay('key9');
     buf = (buf + '*').slice(-3);
   }
 
   function ringStart(){
     if(booting) return;
     interruptRing();
-    ringNode = play('ring', { loop:true });
+    ringNode = safePlay('ring', { loop:true });
   }
 
   function ringStop(){
@@ -462,13 +430,13 @@
     interruptRing();
 
     if(!transformed){
-      play('key9');
+      safePlay('key9');
       buf = '';
       return;
     }
 
-    play('key9');
-    const s = play('release', {
+    safePlay('key9');
+    const s = safePlay('release', {
       onended: () => {
         transformed = false;
         armed = false;
