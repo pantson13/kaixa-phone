@@ -145,6 +145,27 @@
     --popup4-top:  15%;
     --popup4-w:    88%;
     --popup4-h:    25%;
+
+    /* ===== popup1 内四张图：可单独调位置和大小 ===== */
+    --popup1-img1-left: 4%;
+    --popup1-img1-top:  20%;
+    --popup1-img1-w:    20%;
+    --popup1-img1-h:    58%;
+
+    --popup1-img2-left: 28%;
+    --popup1-img2-top:  20%;
+    --popup1-img2-w:    20%;
+    --popup1-img2-h:    58%;
+
+    --popup1-img3-left: 52%;
+    --popup1-img3-top:  20%;
+    --popup1-img3-w:    20%;
+    --popup1-img3-h:    58%;
+
+    --popup1-img4-left: 76%;
+    --popup1-img4-top:  20%;
+    --popup1-img4-w:    20%;
+    --popup1-img4-h:    58%;
   }
 
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -215,6 +236,33 @@
     pointer-events:none;
   }
 
+  .popup-layer{
+    position:absolute;
+    inset:0;
+  }
+
+  .popup-item{
+    position:absolute;
+  }
+
+  .popup-item img{
+    width:100%;
+    height:100%;
+    object-fit:contain;
+    display:block;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(255,255,255,.12);
+    border-radius:8px;
+  }
+
+  .popup-item-label{
+    margin-top:4px;
+    font:600 10px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    color:#d9e8ff;
+    text-align:center;
+    white-space:nowrap;
+  }
+
   .tip{
     width:min(94vw, 520px);
     margin:6px auto 0;
@@ -237,7 +285,30 @@
       <button class="hit circle" id="btnTop4" aria-label="TOP4" data-btn="top4"></button>
 
       <!-- 四个弹框 -->
-      <div class="popup" id="popup1" data-label="POPUP1"></div>
+      <div class="popup" id="popup1" data-label="POPUP1">
+        <div class="popup-layer">
+          <div class="popup-item" id="popup1-item1">
+            <img src="assets/single mode.jpg" alt="single mode">
+            <div class="popup-item-label">single mode</div>
+          </div>
+
+          <div class="popup-item" id="popup1-item2">
+            <img src="assets/burst mode.jpg" alt="burst mode">
+            <div class="popup-item-label">burst mode</div>
+          </div>
+
+          <div class="popup-item" id="popup1-item3">
+            <img src="assets/ready.jpg" alt="ready">
+            <div class="popup-item-label">ready</div>
+          </div>
+
+          <div class="popup-item" id="popup1-item4">
+            <img src="assets/ec.jpg" alt="ec">
+            <div class="popup-item-label">ec</div>
+          </div>
+        </div>
+      </div>
+
       <div class="popup" id="popup2" data-label="POPUP2"></div>
       <div class="popup" id="popup3" data-label="POPUP3"></div>
       <div class="popup" id="popup4" data-label="POPUP4"></div>
@@ -273,10 +344,8 @@
     </div>
 
     <div class="tip">
-      中间 MODE 按钮：<br>
-      106 + ENTER 后可触发 bmbiu 2 次；103 + ENTER 后可触发 smbiu 3 次。<br>
-      如果确认后 8 秒内一次都没按 MODE，会自动失效。<br>
-      顶部圆形按钮弹框互斥显示。
+      第一个圆形按钮弹框里已放入四张图：single mode、burst mode、ready、ec。<br>
+      四张图都可以单独调位置和大小。
     </div>
   </div>
 
@@ -374,8 +443,7 @@
   let standNode = null;
   let audioReady = false;
 
-  // MODE 按钮资格状态
-  let modeAction = null; // 'burst' | 'single' | null
+  let modeAction = null;
   let modeRemaining = 0;
   let modeTimer = null;
   let modeUsed = false;
@@ -432,7 +500,6 @@
     if(!transformed) return;
     if(!modeAction || modeRemaining <= 0) return;
 
-    // 第一次成功触发后，取消 8 秒未使用重置
     if(!modeUsed){
       modeUsed = true;
       if(modeTimer){
@@ -622,6 +689,13 @@
     el.style.height = getPct(`--popup${idx}-h`) + '%';
   }
 
+  function setPopupItemRect(el, idx){
+    el.style.left   = getPct(`--popup1-img${idx}-left`) + '%';
+    el.style.top    = getPct(`--popup1-img${idx}-top`) + '%';
+    el.style.width  = getPct(`--popup1-img${idx}-w`) + '%';
+    el.style.height = getPct(`--popup1-img${idx}-h`) + '%';
+  }
+
   function place(){
     document.querySelectorAll('.hit[data-btn]').forEach(el => {
       setRectByName(el, el.dataset.btn);
@@ -631,6 +705,11 @@
     setPopupRect(document.getElementById('popup2'), 2);
     setPopupRect(document.getElementById('popup3'), 3);
     setPopupRect(document.getElementById('popup4'), 4);
+
+    setPopupItemRect(document.getElementById('popup1-item1'), 1);
+    setPopupItemRect(document.getElementById('popup1-item2'), 2);
+    setPopupItemRect(document.getElementById('popup1-item3'), 3);
+    setPopupItemRect(document.getElementById('popup1-item4'), 4);
   }
 
   window.addEventListener('load', place);
