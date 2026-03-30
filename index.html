@@ -303,7 +303,7 @@
             <div class="popup-item-label">burst mode</div>
           </div>
 
-          <div class="popup-item is-clickable" id="popup1-item3">
+          <div class="popup-item" id="popup1-item3">
             <img src="assets/ready.jpg" alt="ready">
             <div class="popup-item-label">ready</div>
           </div>
@@ -313,7 +313,7 @@
             <div class="popup-item-label">ec</div>
           </div>
 
-          <div class="popup-item" id="popup1-item5">
+          <div class="popup-item is-clickable" id="popup1-item5">
             <img src="assets/xp.jpg" alt="xp">
             <div class="popup-item-label">xp</div>
           </div>
@@ -352,8 +352,7 @@
     </div>
 
     <div class="tip">
-      popup1 里新增 xp.jpg。<br>
-      点击 ready 图会播 ready 音效，点击 ec 图会播 put to death 音效。
+      正确顺序：点击 xp → ready；再点 ENTER → enter + exceed charge；再点 ec → put to death。
     </div>
   </div>
 
@@ -457,6 +456,10 @@
   let modeTimer = null;
   let modeUsed = false;
 
+  // popup1 xp -> enter -> ec 链路
+  let xpReadyArmed = false;
+  let ecDeathArmed = false;
+
   function interruptRing(){
     if(ringNode){
       stop(ringNode);
@@ -484,6 +487,11 @@
         clearModeGrant();
       }
     }, 8000);
+  }
+
+  function resetXpEcFlow(){
+    xpReadyArmed = false;
+    ecDeathArmed = false;
   }
 
   async function ensureReady(){
@@ -548,6 +556,16 @@
     interruptRing();
 
     if(transformed){
+      // xp -> enter -> ec 链路优先
+      if(xpReadyArmed){
+        play('enter');
+        play('exceed');
+        xpReadyArmed = false;
+        ecDeathArmed = true;
+        buf = '';
+        return;
+      }
+
       if(buf === '106'){
         play('enter');
         play('burstMode');
@@ -585,6 +603,7 @@
         armed = false;
         buf = '';
         clearModeGrant();
+        resetXpEcFlow();
       };
       if(s) s.onended = done;
       else setTimeout(done, 380);
@@ -646,6 +665,7 @@
       readyOnce = false;
       buf = '';
       clearModeGrant();
+      resetXpEcFlow();
     };
     if(s) s.onended = done;
     else done();
@@ -667,16 +687,20 @@
   document.getElementById('btnTop3').addEventListener('click', () => showExclusivePopup('popup3'));
   document.getElementById('btnTop4').addEventListener('click', () => showExclusivePopup('popup4'));
 
-  document.getElementById('popup1-item3').addEventListener('click', async (e) => {
+  document.getElementById('popup1-item5').addEventListener('click', async (e) => {
     e.stopPropagation();
     await ensureReady();
     play('ready');
+    xpReadyArmed = true;
+    ecDeathArmed = false;
   });
 
   document.getElementById('popup1-item4').addEventListener('click', async (e) => {
     e.stopPropagation();
     await ensureReady();
+    if(!ecDeathArmed) return;
     play('putToDeath');
+    ecDeathArmed = false;
   });
 
   document.querySelectorAll('.hit[data-k]').forEach(b => {
