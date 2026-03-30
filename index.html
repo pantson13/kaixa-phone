@@ -146,26 +146,31 @@
     --popup4-w:    88%;
     --popup4-h:    25%;
 
-    /* ===== popup1 内四张图：可单独调位置和大小 ===== */
-    --popup1-img1-left: 4%;
+    /* ===== popup1 内五张图：可单独调位置和大小 ===== */
+    --popup1-img1-left: 3%;
     --popup1-img1-top:  20%;
-    --popup1-img1-w:    20%;
+    --popup1-img1-w:    17%;
     --popup1-img1-h:    58%;
 
-    --popup1-img2-left: 28%;
+    --popup1-img2-left: 22%;
     --popup1-img2-top:  20%;
-    --popup1-img2-w:    20%;
+    --popup1-img2-w:    17%;
     --popup1-img2-h:    58%;
 
-    --popup1-img3-left: 52%;
+    --popup1-img3-left: 41%;
     --popup1-img3-top:  20%;
-    --popup1-img3-w:    20%;
+    --popup1-img3-w:    17%;
     --popup1-img3-h:    58%;
 
-    --popup1-img4-left: 76%;
+    --popup1-img4-left: 60%;
     --popup1-img4-top:  20%;
-    --popup1-img4-w:    20%;
+    --popup1-img4-w:    17%;
     --popup1-img4-h:    58%;
+
+    --popup1-img5-left: 79%;
+    --popup1-img5-top:  20%;
+    --popup1-img5-w:    17%;
+    --popup1-img5-h:    58%;
   }
 
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -191,7 +196,6 @@
     -webkit-user-select:none;
     transform-origin:center;
     cursor:pointer;
-
     background:rgba(255,0,0,.22);
     border:1.5px dashed #00ffff;
     border-radius:8px;
@@ -255,6 +259,10 @@
     border-radius:8px;
   }
 
+  .popup-item.is-clickable{
+    cursor:pointer;
+  }
+
   .popup-item-label{
     margin-top:4px;
     font:600 10px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
@@ -278,18 +286,16 @@
     <div class="phone" id="phone">
       <img src="assets/ui.jpg" alt="KAIXA UI" id="ui"/>
 
-      <!-- 顶部四个圆形按钮 -->
       <button class="hit circle" id="btnTop1" aria-label="TOP1" data-btn="top1"></button>
       <button class="hit circle" id="btnTop2" aria-label="TOP2" data-btn="top2"></button>
       <button class="hit circle" id="btnTop3" aria-label="TOP3" data-btn="top3"></button>
       <button class="hit circle" id="btnTop4" aria-label="TOP4" data-btn="top4"></button>
 
-      <!-- 四个弹框 -->
       <div class="popup" id="popup1" data-label="POPUP1">
         <div class="popup-layer">
           <div class="popup-item" id="popup1-item1">
-            <img src="assets/single mode.jpg" alt="single mode">
-            <div class="popup-item-label">single mode</div>
+            <img src="assets/sigle mode.jpg" alt="sigle mode">
+            <div class="popup-item-label">sigle mode</div>
           </div>
 
           <div class="popup-item" id="popup1-item2">
@@ -297,14 +303,19 @@
             <div class="popup-item-label">burst mode</div>
           </div>
 
-          <div class="popup-item" id="popup1-item3">
+          <div class="popup-item is-clickable" id="popup1-item3">
             <img src="assets/ready.jpg" alt="ready">
             <div class="popup-item-label">ready</div>
           </div>
 
-          <div class="popup-item" id="popup1-item4">
+          <div class="popup-item is-clickable" id="popup1-item4">
             <img src="assets/ec.jpg" alt="ec">
             <div class="popup-item-label">ec</div>
+          </div>
+
+          <div class="popup-item" id="popup1-item5">
+            <img src="assets/xp.jpg" alt="xp">
+            <div class="popup-item-label">xp</div>
           </div>
         </div>
       </div>
@@ -313,10 +324,8 @@
       <div class="popup" id="popup3" data-label="POPUP3"></div>
       <div class="popup" id="popup4" data-label="POPUP4"></div>
 
-      <!-- 中间模式按钮 -->
       <button class="hit" id="btnMode" aria-label="MODE" data-btn="mode"></button>
 
-      <!-- 主按钮 -->
       <button class="hit" id="btnEnter" aria-label="ENTER" data-btn="enter"></button>
 
       <button class="hit" id="btnRing"  aria-label="铃声"   data-btn="ring"></button>
@@ -339,14 +348,12 @@
       <button class="hit" data-k="0" aria-label="0" data-btn="0"></button>
       <button class="hit" data-k="#" aria-label="#" data-btn="hash"></button>
 
-      <!-- OPEN 方形按钮 -->
       <button class="hit" id="btnPower" aria-label="OPEN" data-btn="power"></button>
     </div>
 
     <div class="tip">
-      第一个圆形按钮弹框里已放入四张图：single mode、burst mode、ready、ec。<br>
-      四张图都可以单独调位置和大小。<br>
-      single mode 音效路径已改成 sigle mode。
+      popup1 里新增 xp.jpg。<br>
+      点击 ready 图会播 ready 音效，点击 ec 图会播 put to death 音效。
     </div>
   </div>
 
@@ -369,7 +376,8 @@
     burstMode:  'assets/burst mode',
     singleMode: 'assets/sigle mode',
     bmbiu:      'assets/bmbiu',
-    smbiu:      'assets/smbiu'
+    smbiu:      'assets/smbiu',
+    putToDeath: 'assets/put to death'
   };
 
   const EXT = ['.m4a','.mp3','.wav','.mp4'];
@@ -659,6 +667,18 @@
   document.getElementById('btnTop3').addEventListener('click', () => showExclusivePopup('popup3'));
   document.getElementById('btnTop4').addEventListener('click', () => showExclusivePopup('popup4'));
 
+  document.getElementById('popup1-item3').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await ensureReady();
+    play('ready');
+  });
+
+  document.getElementById('popup1-item4').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await ensureReady();
+    play('putToDeath');
+  });
+
   document.querySelectorAll('.hit[data-k]').forEach(b => {
     const k = b.dataset.k;
     if(k === '*') b.addEventListener('click', onStar);
@@ -711,6 +731,7 @@
     setPopupItemRect(document.getElementById('popup1-item2'), 2);
     setPopupItemRect(document.getElementById('popup1-item3'), 3);
     setPopupItemRect(document.getElementById('popup1-item4'), 4);
+    setPopupItemRect(document.getElementById('popup1-item5'), 5);
   }
 
   window.addEventListener('load', place);
