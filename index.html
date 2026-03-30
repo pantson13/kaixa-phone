@@ -98,6 +98,12 @@
     --btn-power-w:    10%;
     --btn-power-h:    10%;
 
+    /* 中间方形模式按钮 */
+    --btn-mode-left:  43%;
+    --btn-mode-top:   36%;
+    --btn-mode-w:     14%;
+    --btn-mode-h:     10%;
+
     /* ===== 顶部四个圆形按钮 ===== */
     --btn-top1-left: 6%;
     --btn-top1-top:  4%;
@@ -119,7 +125,7 @@
     --btn-top4-w:    18%;
     --btn-top4-h:    9%;
 
-    /* ===== 四个弹框，可单独调位置和大小 ===== */
+    /* ===== 四个弹框 ===== */
     --popup1-left: 6%;
     --popup1-top:  15%;
     --popup1-w:    88%;
@@ -236,6 +242,9 @@
       <div class="popup" id="popup3" data-label="POPUP3"></div>
       <div class="popup" id="popup4" data-label="POPUP4"></div>
 
+      <!-- 中间模式按钮 -->
+      <button class="hit" id="btnMode" aria-label="MODE" data-btn="mode"></button>
+
       <!-- 主按钮 -->
       <button class="hit" id="btnEnter" aria-label="ENTER" data-btn="enter"></button>
 
@@ -264,10 +273,10 @@
     </div>
 
     <div class="tip">
-      顶部四个圆形按钮会弹出对应黑色半透明框。按钮和弹框大小位置都能单独改。<br>
-      OPEN 可重复触发，变身后禁用，解除变身后恢复。<br>
-      变身后输入 106 再按 ENTER：enter + burst mode。<br>
-      变身后输入 103 再按 ENTER：enter + single mode。
+      中间 MODE 按钮：<br>
+      106 + ENTER 后可触发 bmbiu 2 次；103 + ENTER 后可触发 smbiu 3 次。<br>
+      如果确认后 8 秒内一次都没按 MODE，会自动失效。<br>
+      顶部圆形按钮弹框互斥显示。
     </div>
   </div>
 
@@ -288,7 +297,9 @@
     release:    'assets/release',
     weaponHit:  'assets/weaponHit',
     burstMode:  'assets/burst mode',
-    singleMode: 'assets/single mode'
+    singleMode: 'assets/single mode',
+    bmbiu:      'assets/bmbiu',
+    smbiu:      'assets/smbiu'
   };
 
   const EXT = ['.m4a','.mp3','.wav','.mp4'];
@@ -363,11 +374,39 @@
   let standNode = null;
   let audioReady = false;
 
+  // MODE 按钮资格状态
+  let modeAction = null; // 'burst' | 'single' | null
+  let modeRemaining = 0;
+  let modeTimer = null;
+  let modeUsed = false;
+
   function interruptRing(){
     if(ringNode){
       stop(ringNode);
       ringNode = null;
     }
+  }
+
+  function clearModeGrant(){
+    modeAction = null;
+    modeRemaining = 0;
+    modeUsed = false;
+    if(modeTimer){
+      clearTimeout(modeTimer);
+      modeTimer = null;
+    }
+  }
+
+  function grantMode(action, count){
+    clearModeGrant();
+    modeAction = action;
+    modeRemaining = count;
+    modeUsed = false;
+    modeTimer = setTimeout(() => {
+      if(!modeUsed){
+        clearModeGrant();
+      }
+    }, 8000);
   }
 
   async function ensureReady(){
@@ -386,6 +425,32 @@
     if(transformed) return;
     await ensureReady();
     play('openPhone');
+  }
+
+  async function onModeButton(){
+    if(!audioReady) return;
+    if(!transformed) return;
+    if(!modeAction || modeRemaining <= 0) return;
+
+    // 第一次成功触发后，取消 8 秒未使用重置
+    if(!modeUsed){
+      modeUsed = true;
+      if(modeTimer){
+        clearTimeout(modeTimer);
+        modeTimer = null;
+      }
+    }
+
+    if(modeAction === 'burst'){
+      play('bmbiu');
+    }else if(modeAction === 'single'){
+      play('smbiu');
+    }
+
+    modeRemaining -= 1;
+    if(modeRemaining <= 0){
+      clearModeGrant();
+    }
   }
 
   function getDigitSound(k){
@@ -410,6 +475,7 @@
       if(buf === '106'){
         play('enter');
         play('burstMode');
+        grantMode('burst', 2);
         buf = '';
         return;
       }
@@ -417,6 +483,7 @@
       if(buf === '103'){
         play('enter');
         play('singleMode');
+        grantMode('single', 3);
         buf = '';
         return;
       }
@@ -441,6 +508,7 @@
         readyOnce = false;
         armed = false;
         buf = '';
+        clearModeGrant();
       };
       if(s) s.onended = done;
       else setTimeout(done, 380);
@@ -501,20 +569,27 @@
       armed = false;
       readyOnce = false;
       buf = '';
+      clearModeGrant();
     };
     if(s) s.onended = done;
     else done();
   }
 
-  function togglePopup(id){
-    const el = document.getElementById(id);
-    el.classList.toggle('show');
+  function showExclusivePopup(id){
+    ['popup1','popup2','popup3','popup4'].forEach(pid => {
+      const el = document.getElementById(pid);
+      if(pid === id){
+        el.classList.toggle('show');
+      }else{
+        el.classList.remove('show');
+      }
+    });
   }
 
-  document.getElementById('btnTop1').addEventListener('click', () => togglePopup('popup1'));
-  document.getElementById('btnTop2').addEventListener('click', () => togglePopup('popup2'));
-  document.getElementById('btnTop3').addEventListener('click', () => togglePopup('popup3'));
-  document.getElementById('btnTop4').addEventListener('click', () => togglePopup('popup4'));
+  document.getElementById('btnTop1').addEventListener('click', () => showExclusivePopup('popup1'));
+  document.getElementById('btnTop2').addEventListener('click', () => showExclusivePopup('popup2'));
+  document.getElementById('btnTop3').addEventListener('click', () => showExclusivePopup('popup3'));
+  document.getElementById('btnTop4').addEventListener('click', () => showExclusivePopup('popup4'));
 
   document.querySelectorAll('.hit[data-k]').forEach(b => {
     const k = b.dataset.k;
@@ -527,6 +602,7 @@
   document.getElementById('btnStop').addEventListener('click', ringStop);
   document.getElementById('btnClear').addEventListener('click', onClear);
   document.getElementById('btnPower').addEventListener('click', onPower);
+  document.getElementById('btnMode').addEventListener('click', onModeButton);
 
   function getPct(name){
     return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
