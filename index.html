@@ -11,7 +11,7 @@
     --bg:#000;
     --fg:#fff;
 
-    /* ===== 每个按钮单独控制：left / top / width / height ===== */
+    /* ===== 主按键 ===== */
     --btn-enter-left: 27.4%;
     --btn-enter-top:  53.1%;
     --btn-enter-w:    29.4%;
@@ -92,11 +92,53 @@
     --btn-hash-w:     13.1%;
     --btn-hash-h:     4.15%;
 
-    /* OPEN 按钮：现在也是独立方形，可单独改位置和大小 */
+    /* OPEN 按钮 */
     --btn-power-left: 8%;
     --btn-power-top:  90.5%;
     --btn-power-w:    10%;
     --btn-power-h:    10%;
+
+    /* ===== 顶部四个圆形按钮 ===== */
+    --btn-top1-left: 15%;
+    --btn-top1-top:  8%;
+    --btn-top1-w:    8%;
+    --btn-top1-h:    8%;
+
+    --btn-top2-left: 30%;
+    --btn-top2-top:  8%;
+    --btn-top2-w:    8%;
+    --btn-top2-h:    8%;
+
+    --btn-top3-left: 45%;
+    --btn-top3-top:  8%;
+    --btn-top3-w:    8%;
+    --btn-top3-h:    8%;
+
+    --btn-top4-left: 60%;
+    --btn-top4-top:  8%;
+    --btn-top4-w:    8%;
+    --btn-top4-h:    8%;
+
+    /* ===== 四个弹框，可单独调位置和大小 ===== */
+    --popup1-left: 10%;
+    --popup1-top:  18%;
+    --popup1-w:    28%;
+    --popup1-h:    14%;
+
+    --popup2-left: 34%;
+    --popup2-top:  22%;
+    --popup2-w:    28%;
+    --popup2-h:    14%;
+
+    --popup3-left: 18%;
+    --popup3-top:  38%;
+    --popup3-w:    30%;
+    --popup3-h:    16%;
+
+    --popup4-left: 42%;
+    --popup4-top:  42%;
+    --popup4-w:    30%;
+    --popup4-h:    16%;
   }
 
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -105,7 +147,13 @@
   .wrap{ width:min(94vw, 520px); margin:12px auto 48px; }
 
   .phone{ position:relative; width:100%; }
-  .phone img{ width:100%; height:auto; display:block; user-select:none; pointer-events:none; }
+  .phone img{
+    width:100%;
+    height:auto;
+    display:block;
+    user-select:none;
+    pointer-events:none;
+  }
 
   .hit{
     position:absolute;
@@ -134,6 +182,33 @@
     pointer-events:none;
   }
 
+  .hit.circle{
+    border-radius:999px;
+  }
+
+  .popup{
+    position:absolute;
+    background:rgba(0,0,0,.6);
+    border:1.5px dashed #00ffff;
+    border-radius:12px;
+    display:none;
+  }
+
+  .popup.show{
+    display:block;
+  }
+
+  .popup::after{
+    content: attr(data-label);
+    position:absolute;
+    left:8px;
+    top:6px;
+    font:600 12px/1 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+    color:#00ffff;
+    text-shadow:0 0 3px #000;
+    pointer-events:none;
+  }
+
   .tip{
     width:min(94vw, 520px);
     margin:6px auto 0;
@@ -149,6 +224,19 @@
     <div class="phone" id="phone">
       <img src="assets/ui.jpg" alt="KAIXA UI" id="ui"/>
 
+      <!-- 顶部四个圆形按钮 -->
+      <button class="hit circle" id="btnTop1" aria-label="TOP1" data-btn="top1"></button>
+      <button class="hit circle" id="btnTop2" aria-label="TOP2" data-btn="top2"></button>
+      <button class="hit circle" id="btnTop3" aria-label="TOP3" data-btn="top3"></button>
+      <button class="hit circle" id="btnTop4" aria-label="TOP4" data-btn="top4"></button>
+
+      <!-- 四个弹框 -->
+      <div class="popup" id="popup1" data-label="POPUP1"></div>
+      <div class="popup" id="popup2" data-label="POPUP2"></div>
+      <div class="popup" id="popup3" data-label="POPUP3"></div>
+      <div class="popup" id="popup4" data-label="POPUP4"></div>
+
+      <!-- 主按钮 -->
       <button class="hit" id="btnEnter" aria-label="ENTER" data-btn="enter"></button>
 
       <button class="hit" id="btnRing"  aria-label="铃声"   data-btn="ring"></button>
@@ -171,13 +259,13 @@
       <button class="hit" data-k="0" aria-label="0" data-btn="0"></button>
       <button class="hit" data-k="#" aria-label="#" data-btn="hash"></button>
 
-      <!-- OPEN 按钮：方形 -->
+      <!-- OPEN 方形按钮 -->
       <button class="hit" id="btnPower" aria-label="OPEN" data-btn="power"></button>
     </div>
 
     <div class="tip">
-      OPEN 按钮可重复触发 open phone。变身后禁用，解除变身后恢复。<br>
-      这版继续沿用 FAIZ 的音效加载与播放方式。
+      顶部四个圆形按钮会弹出对应黑色半透明框。按钮和弹框大小位置都能单独改。<br>
+      OPEN 可重复触发，变身后禁用，解除变身后恢复。
     </div>
   </div>
 
@@ -400,6 +488,16 @@
     else done();
   }
 
+  function togglePopup(id){
+    const el = document.getElementById(id);
+    el.classList.toggle('show');
+  }
+
+  document.getElementById('btnTop1').addEventListener('click', () => togglePopup('popup1'));
+  document.getElementById('btnTop2').addEventListener('click', () => togglePopup('popup2'));
+  document.getElementById('btnTop3').addEventListener('click', () => togglePopup('popup3'));
+  document.getElementById('btnTop4').addEventListener('click', () => togglePopup('popup4'));
+
   document.querySelectorAll('.hit[data-k]').forEach(b => {
     const k = b.dataset.k;
     if(k === '*') b.addEventListener('click', onStar);
@@ -419,21 +517,26 @@
   function setRectByName(el, name){
     el.style.left   = getPct(`--btn-${name}-left`) + '%';
     el.style.top    = getPct(`--btn-${name}-top`) + '%';
-
-    if(name === 'power'){
-      el.style.width  = getPct(`--btn-${name}-w`) + '%';
-      el.style.height = getPct(`--btn-${name}-h`) + '%';
-      return;
-    }
-
     el.style.width  = getPct(`--btn-${name}-w`) + '%';
     el.style.height = getPct(`--btn-${name}-h`) + '%';
+  }
+
+  function setPopupRect(el, idx){
+    el.style.left   = getPct(`--popup${idx}-left`) + '%';
+    el.style.top    = getPct(`--popup${idx}-top`) + '%';
+    el.style.width  = getPct(`--popup${idx}-w`) + '%';
+    el.style.height = getPct(`--popup${idx}-h`) + '%';
   }
 
   function place(){
     document.querySelectorAll('.hit[data-btn]').forEach(el => {
       setRectByName(el, el.dataset.btn);
     });
+
+    setPopupRect(document.getElementById('popup1'), 1);
+    setPopupRect(document.getElementById('popup2'), 2);
+    setPopupRect(document.getElementById('popup3'), 3);
+    setPopupRect(document.getElementById('popup4'), 4);
   }
 
   window.addEventListener('load', place);
