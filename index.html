@@ -342,8 +342,7 @@
     </div>
 
     <div class="tip">
-      popup1 第一张图点击播 sigle mode，第二张图点击播 burst mode。<br>
-      xp 图片和按钮已去掉。
+      popup1：第一张图点播 smbiu。第二张图第一次播 burst mode，再按一次播 bmbiu，循环。
     </div>
   </div>
 
@@ -375,6 +374,8 @@
 
   let ac = null, master = null;
   const buffers = new Map();
+
+  let popupBurstToggle = 0;
 
   function ctx(){
     if(ac) return ac;
@@ -660,13 +661,20 @@
   document.getElementById('popup1-item1').addEventListener('click', async (e) => {
     e.stopPropagation();
     await ensureReady();
-    play('singleMode');
+    play('smbiu');
   });
 
   document.getElementById('popup1-item2').addEventListener('click', async (e) => {
     e.stopPropagation();
     await ensureReady();
-    play('burstMode');
+
+    if(popupBurstToggle === 0){
+      play('burstMode');
+      popupBurstToggle = 1;
+    }else{
+      play('bmbiu');
+      popupBurstToggle = 0;
+    }
   });
 
   document.querySelectorAll('.hit[data-k]').forEach(b => {
