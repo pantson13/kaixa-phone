@@ -146,31 +146,26 @@
     --popup4-w:    88%;
     --popup4-h:    25%;
 
-    /* ===== popup1 内五张图：可单独调位置和大小 ===== */
-    --popup1-img1-left: 3%;
+    /* ===== popup1 内四张图：可单独调位置和大小 ===== */
+    --popup1-img1-left: 4%;
     --popup1-img1-top:  20%;
-    --popup1-img1-w:    17%;
+    --popup1-img1-w:    20%;
     --popup1-img1-h:    58%;
 
-    --popup1-img2-left: 22%;
+    --popup1-img2-left: 28%;
     --popup1-img2-top:  20%;
-    --popup1-img2-w:    17%;
+    --popup1-img2-w:    20%;
     --popup1-img2-h:    58%;
 
-    --popup1-img3-left: 41%;
+    --popup1-img3-left: 52%;
     --popup1-img3-top:  20%;
-    --popup1-img3-w:    17%;
+    --popup1-img3-w:    20%;
     --popup1-img3-h:    58%;
 
-    --popup1-img4-left: 60%;
+    --popup1-img4-left: 76%;
     --popup1-img4-top:  20%;
-    --popup1-img4-w:    17%;
+    --popup1-img4-w:    20%;
     --popup1-img4-h:    58%;
-
-    --popup1-img5-left: 79%;
-    --popup1-img5-top:  20%;
-    --popup1-img5-w:    17%;
-    --popup1-img5-h:    58%;
   }
 
   *{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -293,12 +288,12 @@
 
       <div class="popup" id="popup1" data-label="POPUP1">
         <div class="popup-layer">
-          <div class="popup-item" id="popup1-item1">
+          <div class="popup-item is-clickable" id="popup1-item1">
             <img src="assets/sigle mode.jpg" alt="sigle mode">
             <div class="popup-item-label">sigle mode</div>
           </div>
 
-          <div class="popup-item" id="popup1-item2">
+          <div class="popup-item is-clickable" id="popup1-item2">
             <img src="assets/burst mode.jpg" alt="burst mode">
             <div class="popup-item-label">burst mode</div>
           </div>
@@ -308,14 +303,9 @@
             <div class="popup-item-label">ready</div>
           </div>
 
-          <div class="popup-item is-clickable" id="popup1-item4">
+          <div class="popup-item" id="popup1-item4">
             <img src="assets/ec.jpg" alt="ec">
             <div class="popup-item-label">ec</div>
-          </div>
-
-          <div class="popup-item is-clickable" id="popup1-item5">
-            <img src="assets/xp.jpg" alt="xp">
-            <div class="popup-item-label">xp</div>
           </div>
         </div>
       </div>
@@ -352,7 +342,8 @@
     </div>
 
     <div class="tip">
-      正确顺序：点击 xp → ready；再点 ENTER → enter + exceed charge；再点 ec → put to death。
+      popup1 第一张图点击播 sigle mode，第二张图点击播 burst mode。<br>
+      xp 图片和按钮已去掉。
     </div>
   </div>
 
@@ -456,10 +447,6 @@
   let modeTimer = null;
   let modeUsed = false;
 
-  // popup1 xp -> enter -> ec 链路
-  let xpReadyArmed = false;
-  let ecDeathArmed = false;
-
   function interruptRing(){
     if(ringNode){
       stop(ringNode);
@@ -487,11 +474,6 @@
         clearModeGrant();
       }
     }, 8000);
-  }
-
-  function resetXpEcFlow(){
-    xpReadyArmed = false;
-    ecDeathArmed = false;
   }
 
   async function ensureReady(){
@@ -556,16 +538,6 @@
     interruptRing();
 
     if(transformed){
-      // xp -> enter -> ec 链路优先
-      if(xpReadyArmed){
-        play('enter');
-        play('exceed');
-        xpReadyArmed = false;
-        ecDeathArmed = true;
-        buf = '';
-        return;
-      }
-
       if(buf === '106'){
         play('enter');
         play('burstMode');
@@ -603,7 +575,6 @@
         armed = false;
         buf = '';
         clearModeGrant();
-        resetXpEcFlow();
       };
       if(s) s.onended = done;
       else setTimeout(done, 380);
@@ -665,7 +636,6 @@
       readyOnce = false;
       buf = '';
       clearModeGrant();
-      resetXpEcFlow();
     };
     if(s) s.onended = done;
     else done();
@@ -687,20 +657,16 @@
   document.getElementById('btnTop3').addEventListener('click', () => showExclusivePopup('popup3'));
   document.getElementById('btnTop4').addEventListener('click', () => showExclusivePopup('popup4'));
 
-  document.getElementById('popup1-item5').addEventListener('click', async (e) => {
+  document.getElementById('popup1-item1').addEventListener('click', async (e) => {
     e.stopPropagation();
     await ensureReady();
-    play('ready');
-    xpReadyArmed = true;
-    ecDeathArmed = false;
+    play('singleMode');
   });
 
-  document.getElementById('popup1-item4').addEventListener('click', async (e) => {
+  document.getElementById('popup1-item2').addEventListener('click', async (e) => {
     e.stopPropagation();
     await ensureReady();
-    if(!ecDeathArmed) return;
-    play('putToDeath');
-    ecDeathArmed = false;
+    play('burstMode');
   });
 
   document.querySelectorAll('.hit[data-k]').forEach(b => {
@@ -755,7 +721,6 @@
     setPopupItemRect(document.getElementById('popup1-item2'), 2);
     setPopupItemRect(document.getElementById('popup1-item3'), 3);
     setPopupItemRect(document.getElementById('popup1-item4'), 4);
-    setPopupItemRect(document.getElementById('popup1-item5'), 5);
   }
 
   window.addEventListener('load', place);
