@@ -1,50 +1,76 @@
-// 修改版本号可强制客户端更新缓存
-const CACHE = 'faiz-v4';
-const ASSETS = [
+/*
+  KAIXA Phone PWA Service Worker
+
+  更新规则：
+  - 在线时优先读取服务器上的最新代码、图片和音效。
+  - 成功取得新版后自动覆盖离线缓存。
+  - 断网时回退到最近一次成功缓存的版本。
+  - 普通代码更新无需删除桌面 App 再重新添加。
+*/
+
+const CACHE_NAME = 'kaixa-phone-runtime-v1';
+
+const APP_SHELL = [
   './',
   './index.html',
-  './manifest.json',
-  // 预缓存音频（与仓库文件名一致，使用相对路径）
-  'assets/open phone.m4a',
-  'assets/ring.m4a',
-  'assets/enter.m4a',
-  'assets/key1.m4a',
-  'assets/key5_2.m4a',
-  'assets/key5_3.m4a',
-  'assets/stand by.m4a',
-  'assets/complete.m4a',
-  'assets/103.m4a',
-  'assets/106.m4a',
-  'assets/3821.m4a'
+  './manifest.webmanifest',
+  './icons/icon-192.png',
+  './icons/icon-512.png'
 ];
 
-self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting())
+self.addEventListener('install', event => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then(cache => cache.addAll(APP_SHELL))
+      .then(() => self.skipWaiting())
   );
 });
 
-self.addEventListener('activate', (e) => {
-  e.waitUntil(
-    caches.keys().then(keys => Promise.all(
-      keys.map(k => k !== CACHE ? caches.delete(k) : Promise.resolve())
-    )).then(() => self.clients.claim())
+self.addEventListener('activate', event => {
+  event.waitUntil(
+    caches.keys()
+      .then(keys => Promise.all(
+        keys
+          .filter(key => key !== CACHE_NAME)
+          .map(key => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// 导航：优先网络，失败回退缓存（便于你更新）
-self.addEventListener('fetch', (e) => {
-  const req = e.request;
-  if (req.mode === 'navigate') {
-    e.respondWith(
-      fetch(req).then(r => {
-        const copy = r.clone();
-        caches.open(CACHE).then(c => c.put('./index.html', copy)).catch(()=>{});
-        return r;
-      }).catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
-  // 其他资源：缓存优先，回退网络
-  e.respondWith(caches.match(req).then(hit => hit || fetch(req)));
+self.addEventListener('fetch', event => {
+  const request = event.request;
+
+  // 当前项目用 HEAD 探测音频扩展名，HEAD 请求保持原样走网络。
+  if (request.method !== 'GET') return;
+
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) return;
+
+  event.respondWith(
+    fetch(request)
+      .then(response => {
+        if (response && response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(async () => {
+        const cached = await caches.match(request);
+        if (cached) return cached;
+
+        if (request.mode === 'navigate') {
+          return (
+            await caches.match('./index.html') ||
+            await caches.match('./')
+          );
+        }
+
+        return new Response('', {
+          status: 504,
+          statusText: 'Offline'
+        });
+      })
+  );
 });
