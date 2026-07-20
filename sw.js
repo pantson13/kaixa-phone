@@ -8,7 +8,7 @@
   - 普通代码更新无需删除桌面 App 再重新添加。
 */
 
-const CACHE_NAME = 'kaixa-phone-runtime-v1';
+const CACHE_NAME = 'kaixa-phone-runtime-v2';
 
 const APP_SHELL = [
   './',

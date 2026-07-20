@@ -191,14 +191,15 @@
     -webkit-user-select:none;
     transform-origin:center;
     cursor:pointer;
-    background:rgba(255,0,0,.22);
-    border:1.5px dashed #00ffff;
+    background:transparent;
+    border:none;
     border-radius:8px;
   }
   .hit:active{ transform:scale(.98); }
 
   .hit::after{
-    content: attr(aria-label);
+        display:none;
+content: attr(aria-label);
     position:absolute;
     left:4px;
     top:2px;
@@ -214,8 +215,7 @@
 
   .popup{
     position:absolute;
-    background:rgba(0,0,0,.6);
-    border:1.5px dashed #00ffff;
+    background:rgba(0,0,0,.6);    border:none;
     border-radius:12px;
     display:none;
   }
@@ -225,7 +225,8 @@
   }
 
   .popup::after{
-    content: attr(data-label);
+        display:none;
+content: attr(data-label);
     position:absolute;
     left:8px;
     top:6px;
