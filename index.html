@@ -664,9 +664,8 @@ content: attr(data-label);
   }
 
   async function ensureActionAudio(){
-    // 正常首次使用仍由 OPEN 或弹框按钮初始化。
-    // 但如果是从后台进程恢复出的交互状态，则允许当前按钮自动重载音效。
-    if(!audioReady && !hasActiveInteractionState()) return false;
+    // 每次实际按键都允许初始化、恢复或重建音频。
+    // 不再要求必须先按 OPEN，也不再依赖已有交互状态。
     return await ensureReady();
   }
 

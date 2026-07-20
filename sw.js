@@ -1,4 +1,4 @@
-const CACHE_NAME = 'kaixa-phone-runtime-v6';
+const CACHE_NAME = 'kaixa-phone-runtime-v7';
 
 const APP_SHELL = [
   './',
