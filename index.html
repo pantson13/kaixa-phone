@@ -358,49 +358,102 @@ content: attr(data-label);
 
 <script>
 (() => {
+  /*
+   * 所有音效均已确认使用 .m4a。
+   * 直接写完整路径，取消 HEAD 探测，避免每个音效多发请求。
+   */
   const BASE = {
-    openPhone:  'assets/open phone',
-    ring:       'assets/ring',
-    enter:      'assets/enter',
-    key1:       'assets/key1',
-    key3:       'assets/key3',
-    key9:       'assets/key9',
-    standBy:    'assets/stand by',
-    complete:   'assets/complete',
-    error:      'assets/error',
-    ready:      'assets/ready',
-    exceed:     'assets/exceed charge',
-    release:    'assets/release',
-    weaponHit:  'assets/weaponHit',
-    burstMode:  'assets/burst mode',
-    singleMode: 'assets/sigle mode',
-    bmbiu:      'assets/bmbiu',
-    smbiu:      'assets/smbiu',
-    putToDeath: 'assets/put to death'
+    openPhone:  'assets/open phone.m4a',
+    ring:       'assets/ring.m4a',
+    enter:      'assets/enter.m4a',
+    key1:       'assets/key1.m4a',
+    key3:       'assets/key3.m4a',
+    key9:       'assets/key9.m4a',
+    standBy:    'assets/stand by.m4a',
+    complete:   'assets/complete.m4a',
+    error:      'assets/error.m4a',
+    ready:      'assets/ready.m4a',
+    exceed:     'assets/exceed charge.m4a',
+    release:    'assets/release.m4a',
+    weaponHit:  'assets/weaponHit.m4a',
+    burstMode:  'assets/burst mode.m4a',
+    singleMode: 'assets/sigle mode.m4a',
+    bmbiu:      'assets/bmbiu.m4a',
+    smbiu:      'assets/smbiu.m4a',
+    putToDeath: 'assets/put to death.m4a'
   };
 
-  const EXT = ['.m4a','.mp3','.wav','.mp4'];
-  const urlMap = {};
+  /*
+   * OPEN 播放后，按这个顺序在后台预加载。
+   * 先准备 913 变身流程最常用的声音，再准备其他声音。
+   */
+  const PRELOAD_ORDER = [
+    'enter',
+    'key9',
+    'key1',
+    'key3',
+    'standBy',
+    'complete',
+    'release',
+    'ready',
+    'exceed',
+    'error',
+    'weaponHit',
+    'singleMode',
+    'burstMode',
+    'smbiu',
+    'bmbiu',
+    'ring',
+    'putToDeath'
+  ];
 
-  let ac = null, master = null;
   const buffers = new Map();
+  const loadPromises = new Map();
 
+  let ac = null;
+  let master = null;
+  let ringNode = null;
+  let standNode = null;
+  let preloadStarted = false;
   let popupBurstToggle = 0;
 
-  function createAudioContext(){
-    const C = window.AudioContext || window.webkitAudioContext;
-    if(!C) return null;
+  const AUDIO_WAKE_TIMEOUT = 450;
 
-    ac = new C({ latencyHint:'interactive' });
+  function delay(ms){
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  function createAudioContext(){
+    const AudioContextClass =
+      window.AudioContext || window.webkitAudioContext;
+
+    if(!AudioContextClass) return null;
+
+    ac = new AudioContextClass({ latencyHint:'interactive' });
     master = ac.createGain();
     master.gain.value = 1;
     master.connect(ac.destination);
+
     return ac;
   }
 
   function ctx(){
     if(ac && ac.state !== 'closed') return ac;
     return createAudioContext();
+  }
+
+  async function resumeWithTimeout(context){
+    if(!context) return false;
+    if(context.state === 'running') return true;
+
+    try{
+      await Promise.race([
+        context.resume().catch(() => null),
+        delay(AUDIO_WAKE_TIMEOUT)
+      ]);
+    }catch{}
+
+    return context.state === 'running';
   }
 
   async function rebuildAudioContext(){
@@ -411,85 +464,166 @@ content: attr(data-label);
     ringNode = null;
     standNode = null;
 
+    /*
+     * 不等待旧 Context 无限 close。
+     * iOS 偶尔会把音频 Promise 卡住，人类已经等得够久了。
+     */
     if(oldContext && oldContext.state !== 'closed'){
       try{
-        await oldContext.close();
+        Promise.race([
+          oldContext.close().catch(() => null),
+          delay(200)
+        ]);
       }catch{}
     }
 
-    const newContext = ctx();
+    const newContext = createAudioContext();
     if(!newContext) return false;
 
-    try{
-      if(newContext.state !== 'running'){
-        await newContext.resume();
-      }
-    }catch{}
-
-    return newContext.state === 'running';
+    return await resumeWithTimeout(newContext);
   }
 
   async function wakeAudio(){
-    let c = ctx();
-    if(!c) return false;
+    const context = ctx();
+    if(!context) return false;
 
-    if(c.state === 'suspended' || c.state === 'interrupted'){
-      try{
-        await c.resume();
-      }catch{}
+    if(await resumeWithTimeout(context)){
+      return true;
     }
-
-    if(c.state === 'running') return true;
 
     return await rebuildAudioContext();
   }
 
-  async function resolveUrl(base){
-    if(urlMap[base]) return urlMap[base];
-    for(const ext of EXT){
-      const u = `${base}${ext}`;
-      try{
-        const r = await fetch(u,{ method:'HEAD', cache:'no-store' });
-        if(r.ok){
-          urlMap[base] = u;
-          return u;
-        }
-      }catch{}
-    }
-    return null;
-  }
-
   async function load(key){
-    if(buffers.has(key)) return buffers.get(key);
-    const url = await resolveUrl(BASE[key]);
+    if(buffers.has(key)){
+      return buffers.get(key);
+    }
+
+    if(loadPromises.has(key)){
+      return loadPromises.get(key);
+    }
+
+    const url = BASE[key];
     if(!url) return null;
 
-    const res = await fetch(url,{ cache:'no-store' });
-    if(!res.ok) return null;
+    const promise = (async () => {
+      try{
+        /*
+         * 不再使用 no-store。
+         * 请求会经过 Service Worker，本地有缓存时可立即返回。
+         */
+        const response = await fetch(url);
 
-    const arr = await res.arrayBuffer();
-    const b = await ctx().decodeAudioData(arr);
-    buffers.set(key,b);
-    return b;
+        if(!response.ok){
+          throw new Error(`${key} 加载失败：${response.status}`);
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const context = ctx();
+
+        if(!context){
+          throw new Error('浏览器不支持 AudioContext');
+        }
+
+        const audioBuffer = await context.decodeAudioData(arrayBuffer);
+        buffers.set(key, audioBuffer);
+        return audioBuffer;
+      }catch(error){
+        console.warn(`音效加载失败：${key}`, error);
+        return null;
+      }finally{
+        loadPromises.delete(key);
+      }
+    })();
+
+    loadPromises.set(key, promise);
+    return promise;
+  }
+
+  async function prepareSounds(keys){
+    const uniqueKeys = [...new Set(keys)];
+
+    /*
+     * 必须先在当前用户点击手势中唤醒 AudioContext，
+     * 再等待网络或缓存读取，避免 iOS 拒绝后续播放。
+     */
+    if(!await wakeAudio()) return false;
+
+    const loaded = await Promise.all(
+      uniqueKeys.map(key => load(key))
+    );
+
+    if(loaded.some(buffer => !buffer)){
+      return false;
+    }
+
+    if(!await wakeAudio()) return false;
+
+    schedulePreload();
+    return true;
   }
 
   function play(key,{loop=false}={}){
-    const b = buffers.get(key);
-    const c = ctx();
+    const buffer = buffers.get(key);
+    const context = ctx();
 
-    if(!b || !c || c.state !== 'running' || !master) return null;
+    if(
+      !buffer ||
+      !context ||
+      context.state !== 'running' ||
+      !master
+    ){
+      return null;
+    }
 
-    const s = c.createBufferSource();
-    s.buffer = b;
-    s.loop = !!loop;
-    s.connect(master);
-    s.start();
-    return s;
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.loop = !!loop;
+    source.connect(master);
+    source.start();
+
+    return source;
   }
 
-  function stop(n){
-    if(n && n.stop){
-      try{ n.stop(); }catch{}
+  function stop(node){
+    if(node && node.stop){
+      try{
+        node.stop();
+      }catch{}
+    }
+  }
+
+  function schedulePreload(){
+    if(preloadStarted) return;
+    preloadStarted = true;
+
+    setTimeout(() => {
+      preloadAudioInBackground();
+    }, 0);
+  }
+
+  async function preloadAudioInBackground(){
+    /*
+     * 每批 3 个，避免第一次打开时同时轰出十几组下载与解码。
+     * 这是后台准备，不会阻塞当前按钮出声。
+     */
+    const remaining = PRELOAD_ORDER.filter(
+      key => !buffers.has(key)
+    );
+
+    const batchSize = 3;
+
+    for(let index = 0; index < remaining.length; index += batchSize){
+      const batch = remaining.slice(index, index + batchSize);
+
+      await Promise.all(
+        batch.map(key => load(key))
+      );
+
+      /*
+       * 给主线程喘口气，防止 iPhone 连续解码时界面卡顿。
+       */
+      await delay(20);
     }
   }
 
@@ -499,21 +633,17 @@ content: attr(data-label);
   let transformed = false;
   let armed = false;
   let readyOnce = false;
-  let ringNode = null;
-  let standNode = null;
-  let audioReady = false;
 
   let modeAction = null;
   let modeRemaining = 0;
   let modeTimer = null;
   let modeUsed = false;
 
-  // 变身后：点击顶层第 3 或第 4 圆形按钮播放 ready，
-  // 下一次按 ENTER 只播放 exceed charge。
+  // 顶层第 3 / 第 4 圆形按钮：
+  // 变身后点击播放 ready，下一次 ENTER 播放 exceed。
   let topReadyArmed = false;
 
-  // iPhone 可能在后台回收整个网页进程。
-  // 用 localStorage 保存交互状态，重新载入后继续当前流程。
+  // 保存交互状态，应对 iPhone 回收 PWA 页面进程。
   const STATE_KEY = 'kaixa-phone-interaction-state-v1';
   let modeGrantExpiresAt = 0;
   let restoringState = false;
@@ -548,24 +678,31 @@ content: attr(data-label);
 
       const state = JSON.parse(raw);
 
-      buf = typeof state.buf === 'string' ? state.buf.slice(-3) : '';
+      buf = typeof state.buf === 'string'
+        ? state.buf.slice(-3)
+        : '';
+
       transformed = state.transformed === true;
       armed = state.armed === true;
       readyOnce = state.readyOnce === true;
       topReadyArmed = state.topReadyArmed === true;
-      popupBurstToggle = state.popupBurstToggle === 1 ? 1 : 0;
+      popupBurstToggle =
+        state.popupBurstToggle === 1 ? 1 : 0;
 
       modeAction =
-        state.modeAction === 'single' || state.modeAction === 'burst'
+        state.modeAction === 'single' ||
+        state.modeAction === 'burst'
           ? state.modeAction
           : null;
 
       modeRemaining =
-        Number.isFinite(state.modeRemaining) && state.modeRemaining > 0
+        Number.isFinite(state.modeRemaining) &&
+        state.modeRemaining > 0
           ? Math.floor(state.modeRemaining)
           : 0;
 
       modeUsed = state.modeUsed === true;
+
       modeGrantExpiresAt =
         Number.isFinite(state.modeGrantExpiresAt)
           ? state.modeGrantExpiresAt
@@ -577,7 +714,8 @@ content: attr(data-label);
         modeUsed = false;
         modeGrantExpiresAt = 0;
       }else if(!modeUsed){
-        const remainingTime = modeGrantExpiresAt - Date.now();
+        const remainingTime =
+          modeGrantExpiresAt - Date.now();
 
         if(remainingTime > 0){
           modeTimer = setTimeout(() => {
@@ -599,17 +737,6 @@ content: attr(data-label);
     }finally{
       restoringState = false;
     }
-  }
-
-  function hasActiveInteractionState(){
-    return (
-      transformed ||
-      armed ||
-      readyOnce ||
-      topReadyArmed ||
-      buf.length > 0 ||
-      !!modeAction
-    );
   }
 
   function interruptRing(){
@@ -650,53 +777,43 @@ content: attr(data-label);
     saveState();
   }
 
-  async function ensureReady(){
-    await wakeAudio();
-
-    if(!audioReady){
-      await Promise.all(
-        Object.keys(BASE).map(key => load(key).catch(() => null))
-      );
-      audioReady = true;
-    }
-
-    return await wakeAudio();
-  }
-
-  async function ensureActionAudio(){
-    // 每次实际按键都允许初始化、恢复或重建音频。
-    // 不再要求必须先按 OPEN，也不再依赖已有交互状态。
-    return await ensureReady();
-  }
-
   async function onPower(){
     if(transformed) return;
-    await ensureReady();
+
+    /*
+     * OPEN 只等待 open phone 自己。
+     * 播放后，其余音效才在后台分批准备。
+     */
+    if(!await prepareSounds(['openPhone'])) return;
+
     play('openPhone');
   }
 
   async function onModeButton(){
-    if(!await ensureActionAudio()) return;
     if(!transformed) return;
     if(!modeAction || modeRemaining <= 0) return;
 
+    const soundKey =
+      modeAction === 'burst' ? 'bmbiu' : 'smbiu';
+
+    if(!await prepareSounds([soundKey])) return;
+
     if(!modeUsed){
       modeUsed = true;
+
       if(modeTimer){
         clearTimeout(modeTimer);
         modeTimer = null;
       }
+
       modeGrantExpiresAt = 0;
       saveState();
     }
 
-    if(modeAction === 'burst'){
-      play('bmbiu');
-    }else if(modeAction === 'single'){
-      play('smbiu');
-    }
+    play(soundKey);
 
     modeRemaining -= 1;
+
     if(modeRemaining <= 0){
       clearModeGrant();
     }else{
@@ -704,27 +821,31 @@ content: attr(data-label);
     }
   }
 
-  function getDigitSound(k){
-    if(k === '9') return 'key9';
-    if(k === '1') return 'key1';
-    if(k === '3') return 'key3';
+  function getDigitSound(key){
+    if(key === '9') return 'key9';
+    if(key === '1') return 'key1';
+    if(key === '3') return 'key3';
     return 'key9';
   }
 
-  async function pressDigit(k){
-    if(!await ensureActionAudio()) return;
+  async function pressDigit(key){
+    const soundKey = getDigitSound(key);
+
+    if(!await prepareSounds([soundKey])) return;
+
     interruptRing();
-    buf = (buf + k).slice(-3);
-    play(getDigitSound(k));
+    buf = (buf + key).slice(-3);
+    play(soundKey);
     saveState();
   }
 
   async function onEnter(){
-    if(!await ensureActionAudio()) return;
     interruptRing();
 
     if(transformed){
       if(topReadyArmed){
+        if(!await prepareSounds(['exceed'])) return;
+
         play('exceed');
         topReadyArmed = false;
         readyOnce = false;
@@ -734,6 +855,8 @@ content: attr(data-label);
       }
 
       if(buf === '106'){
+        if(!await prepareSounds(['enter','burstMode'])) return;
+
         play('enter');
         play('burstMode');
         grantMode('burst', 2);
@@ -743,6 +866,8 @@ content: attr(data-label);
       }
 
       if(buf === '103'){
+        if(!await prepareSounds(['enter','singleMode'])) return;
+
         play('enter');
         play('singleMode');
         grantMode('single', 3);
@@ -752,11 +877,16 @@ content: attr(data-label);
       }
 
       if(!readyOnce){
+        if(!await prepareSounds(['ready'])) return;
+
         play('ready');
         readyOnce = true;
         saveState();
         return;
       }
+
+      if(!await prepareSounds(['enter','exceed'])) return;
+
       play('enter');
       play('exceed');
       readyOnce = false;
@@ -764,7 +894,13 @@ content: attr(data-label);
       return;
     }
 
+    /*
+     * 913 完整变身的第二次 ENTER：
+     * 先播放 enter，结束后再播放 complete。
+     */
     if(armed){
+      if(!await prepareSounds(['enter','complete'])) return;
+
       stop(standNode);
       standNode = null;
 
@@ -788,7 +924,6 @@ content: attr(data-label);
         }
       };
 
-      // 第二次 ENTER：先播放 enter，再接 complete。
       const enterNode = play('enter');
 
       if(enterNode){
@@ -801,12 +936,32 @@ content: attr(data-label);
       return;
     }
 
+    /*
+     * 第一次 ENTER：
+     * ENTER 本身播放 enter。
+     * 输入为 913 时，同时播放 stand by 并进入 armed。
+     */
+    const neededSounds =
+      buf === TRANSFORM_CODE
+        ? ['enter','standBy']
+        : buf.length === 3
+          ? ['enter','error']
+          : ['enter'];
+
+    if(!await prepareSounds(neededSounds)) return;
+
     play('enter');
 
     if(buf === TRANSFORM_CODE){
       stop(standNode);
       standNode = play('standBy');
-      if(standNode) standNode.onended = () => standNode = null;
+
+      if(standNode){
+        standNode.onended = () => {
+          standNode = null;
+        };
+      }
+
       armed = true;
       saveState();
       return;
@@ -822,38 +977,47 @@ content: attr(data-label);
   }
 
   async function onStar(){
-    if(!await ensureActionAudio()) return;
+    const soundKey = transformed
+      ? 'weaponHit'
+      : 'key9';
+
+    if(!await prepareSounds([soundKey])) return;
+
     interruptRing();
-    if(transformed) play('weaponHit');
-    else play('key9');
+    play(soundKey);
     buf = (buf + '*').slice(-3);
     saveState();
   }
 
   async function ringStart(){
-    if(!await ensureActionAudio()) return;
+    if(!await prepareSounds(['ring'])) return;
+
     interruptRing();
     ringNode = play('ring',{loop:true});
   }
 
   function ringStop(){
-    if(!audioReady) return;
     interruptRing();
   }
 
   async function onClear(){
-    if(!await ensureActionAudio()) return;
     interruptRing();
 
     if(!transformed){
+      if(!await prepareSounds(['key9'])) return;
+
       play('key9');
       buf = '';
       saveState();
       return;
     }
 
+    if(!await prepareSounds(['key9','release'])) return;
+
     play('key9');
-    const s = play('release');
+
+    const releaseNode = play('release');
+
     const done = () => {
       transformed = false;
       armed = false;
@@ -863,147 +1027,256 @@ content: attr(data-label);
       topReadyArmed = false;
       saveState();
     };
-    if(s) s.onended = done;
-    else done();
+
+    if(releaseNode){
+      releaseNode.onended = done;
+    }else{
+      done();
+    }
   }
 
   function showExclusivePopup(id){
-    ['popup1','popup2','popup3','popup4'].forEach(pid => {
-      const el = document.getElementById(pid);
-      if(pid === id){
-        el.classList.toggle('show');
+    ['popup1','popup2','popup3','popup4'].forEach(
+      popupId => {
+        const element = document.getElementById(popupId);
+
+        if(popupId === id){
+          element.classList.toggle('show');
+        }else{
+          element.classList.remove('show');
+        }
+      }
+    );
+  }
+
+  document.getElementById('btnTop1')
+    .addEventListener('click', () => {
+      showExclusivePopup('popup1');
+    });
+
+  document.getElementById('btnTop2')
+    .addEventListener('click', () => {
+      showExclusivePopup('popup2');
+    });
+
+  /*
+   * 第 3、第 4 个圆形按钮不弹框。
+   * 变身后点击播放 ready，下一次 ENTER 播放 exceed。
+   */
+  document.getElementById('btnTop3')
+    .addEventListener('click', async () => {
+      if(!transformed) return;
+      if(!await prepareSounds(['ready'])) return;
+
+      interruptRing();
+      play('ready');
+      topReadyArmed = true;
+      readyOnce = false;
+      buf = '';
+      saveState();
+    });
+
+  document.getElementById('btnTop4')
+    .addEventListener('click', async () => {
+      if(!transformed) return;
+      if(!await prepareSounds(['ready'])) return;
+
+      interruptRing();
+      play('ready');
+      topReadyArmed = true;
+      readyOnce = false;
+      buf = '';
+      saveState();
+    });
+
+  document.getElementById('popup1-item1')
+    .addEventListener('click', async event => {
+      event.stopPropagation();
+
+      if(!await prepareSounds(['smbiu'])) return;
+      play('smbiu');
+    });
+
+  document.getElementById('popup1-item2')
+    .addEventListener('click', async event => {
+      event.stopPropagation();
+
+      const soundKey =
+        popupBurstToggle === 0
+          ? 'burstMode'
+          : 'bmbiu';
+
+      if(!await prepareSounds([soundKey])) return;
+
+      play(soundKey);
+      popupBurstToggle =
+        popupBurstToggle === 0 ? 1 : 0;
+
+      saveState();
+    });
+
+  document.getElementById('popup1-item3')
+    .addEventListener('click', async event => {
+      event.stopPropagation();
+
+      if(!await prepareSounds(['ready'])) return;
+      play('ready');
+    });
+
+  document.getElementById('popup1-item4')
+    .addEventListener('click', async event => {
+      event.stopPropagation();
+
+      if(!await prepareSounds(['exceed'])) return;
+      play('exceed');
+    });
+
+  document.querySelectorAll('.hit[data-k]')
+    .forEach(button => {
+      const key = button.dataset.k;
+
+      if(key === '*'){
+        button.addEventListener('click', onStar);
       }else{
-        el.classList.remove('show');
+        button.addEventListener(
+          'click',
+          () => pressDigit(key)
+        );
       }
     });
-  }
 
-  document.getElementById('btnTop1').addEventListener('click', () => {
-    showExclusivePopup('popup1');
-  });
+  document.getElementById('btnEnter')
+    .addEventListener('click', onEnter);
 
-  document.getElementById('btnTop2').addEventListener('click', () => {
-    showExclusivePopup('popup2');
-  });
+  document.getElementById('btnRing')
+    .addEventListener('click', ringStart);
 
-  document.getElementById('btnTop3').addEventListener('click', async () => {
-    if(!transformed) return;
+  document.getElementById('btnStop')
+    .addEventListener('click', ringStop);
 
-    await ensureReady();
-    interruptRing();
-    play('ready');
-    topReadyArmed = true;
-    readyOnce = false;
-    buf = '';
-  });
+  document.getElementById('btnClear')
+    .addEventListener('click', onClear);
 
-  document.getElementById('btnTop4').addEventListener('click', async () => {
-    if(!transformed) return;
+  document.getElementById('btnPower')
+    .addEventListener('click', onPower);
 
-    await ensureReady();
-    interruptRing();
-    play('ready');
-    topReadyArmed = true;
-    readyOnce = false;
-    buf = '';
-  });
-
-  document.getElementById('popup1-item1').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    await ensureReady();
-    play('smbiu');
-  });
-
-  document.getElementById('popup1-item2').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    await ensureReady();
-
-    if(popupBurstToggle === 0){
-      play('burstMode');
-      popupBurstToggle = 1;
-    }else{
-      play('bmbiu');
-      popupBurstToggle = 0;
-    }
-
-    saveState();
-  });
-
-  document.getElementById('popup1-item3').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    await ensureReady();
-    play('ready');
-  });
-
-  document.getElementById('popup1-item4').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    await ensureReady();
-    play('exceed');
-  });
-
-  document.querySelectorAll('.hit[data-k]').forEach(b => {
-    const k = b.dataset.k;
-    if(k === '*') b.addEventListener('click', onStar);
-    else b.addEventListener('click', () => pressDigit(k));
-  });
-
-  document.getElementById('btnEnter').addEventListener('click', onEnter);
-  document.getElementById('btnRing').addEventListener('click', ringStart);
-  document.getElementById('btnStop').addEventListener('click', ringStop);
-  document.getElementById('btnClear').addEventListener('click', onClear);
-  document.getElementById('btnPower').addEventListener('click', onPower);
-  document.getElementById('btnMode').addEventListener('click', onModeButton);
+  document.getElementById('btnMode')
+    .addEventListener('click', onModeButton);
 
   function getPct(name){
-    return parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name)) || 0;
+    return (
+      parseFloat(
+        getComputedStyle(document.documentElement)
+          .getPropertyValue(name)
+      ) || 0
+    );
   }
 
-  function setRectByName(el, name){
-    el.style.left   = getPct(`--btn-${name}-left`) + '%';
-    el.style.top    = getPct(`--btn-${name}-top`) + '%';
-    el.style.width  = getPct(`--btn-${name}-w`) + '%';
-    el.style.height = getPct(`--btn-${name}-h`) + '%';
+  function setRectByName(element, name){
+    element.style.left =
+      getPct(`--btn-${name}-left`) + '%';
+
+    element.style.top =
+      getPct(`--btn-${name}-top`) + '%';
+
+    element.style.width =
+      getPct(`--btn-${name}-w`) + '%';
+
+    element.style.height =
+      getPct(`--btn-${name}-h`) + '%';
   }
 
-  function setPopupRect(el, idx){
-    el.style.left   = getPct(`--popup${idx}-left`) + '%';
-    el.style.top    = getPct(`--popup${idx}-top`) + '%';
-    el.style.width  = getPct(`--popup${idx}-w`) + '%';
-    el.style.height = getPct(`--popup${idx}-h`) + '%';
+  function setPopupRect(element, index){
+    element.style.left =
+      getPct(`--popup${index}-left`) + '%';
+
+    element.style.top =
+      getPct(`--popup${index}-top`) + '%';
+
+    element.style.width =
+      getPct(`--popup${index}-w`) + '%';
+
+    element.style.height =
+      getPct(`--popup${index}-h`) + '%';
   }
 
-  function setPopupItemRect(el, idx){
-    el.style.left   = getPct(`--popup1-img${idx}-left`) + '%';
-    el.style.top    = getPct(`--popup1-img${idx}-top`) + '%';
-    el.style.width  = getPct(`--popup1-img${idx}-w`) + '%';
-    el.style.height = getPct(`--popup1-img${idx}-h`) + '%';
+  function setPopupItemRect(element, index){
+    element.style.left =
+      getPct(`--popup1-img${index}-left`) + '%';
+
+    element.style.top =
+      getPct(`--popup1-img${index}-top`) + '%';
+
+    element.style.width =
+      getPct(`--popup1-img${index}-w`) + '%';
+
+    element.style.height =
+      getPct(`--popup1-img${index}-h`) + '%';
   }
 
   function place(){
-    document.querySelectorAll('.hit[data-btn]').forEach(el => {
-      setRectByName(el, el.dataset.btn);
-    });
+    document.querySelectorAll('.hit[data-btn]')
+      .forEach(element => {
+        setRectByName(element, element.dataset.btn);
+      });
 
-    setPopupRect(document.getElementById('popup1'), 1);
-    setPopupRect(document.getElementById('popup2'), 2);
-    setPopupRect(document.getElementById('popup3'), 3);
-    setPopupRect(document.getElementById('popup4'), 4);
+    setPopupRect(
+      document.getElementById('popup1'),
+      1
+    );
 
-    setPopupItemRect(document.getElementById('popup1-item1'), 1);
-    setPopupItemRect(document.getElementById('popup1-item2'), 2);
-    setPopupItemRect(document.getElementById('popup1-item3'), 3);
-    setPopupItemRect(document.getElementById('popup1-item4'), 4);
+    setPopupRect(
+      document.getElementById('popup2'),
+      2
+    );
+
+    setPopupRect(
+      document.getElementById('popup3'),
+      3
+    );
+
+    setPopupRect(
+      document.getElementById('popup4'),
+      4
+    );
+
+    setPopupItemRect(
+      document.getElementById('popup1-item1'),
+      1
+    );
+
+    setPopupItemRect(
+      document.getElementById('popup1-item2'),
+      2
+    );
+
+    setPopupItemRect(
+      document.getElementById('popup1-item3'),
+      3
+    );
+
+    setPopupItemRect(
+      document.getElementById('popup1-item4'),
+      4
+    );
   }
 
   restoreState();
 
-  document.addEventListener('visibilitychange', () => {
-    if(document.visibilityState === 'visible'){
-      wakeAudio();
-    }else{
-      saveState();
+  document.addEventListener(
+    'visibilitychange',
+    () => {
+      if(document.visibilityState === 'visible'){
+        /*
+         * 前台时先尝试恢复。
+         * 如果 iOS 要求用户手势，下一次实际按钮点击还会再恢复。
+         */
+        wakeAudio();
+      }else{
+        saveState();
+      }
     }
-  });
+  );
 
   window.addEventListener('pageshow', () => {
     wakeAudio();
