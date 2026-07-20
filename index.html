@@ -308,12 +308,12 @@ content: attr(data-label);
             <div class="popup-item-label">burst mode</div>
           </div>
 
-          <div class="popup-item" id="popup1-item3">
+          <div class="popup-item is-clickable" id="popup1-item3">
             <img src="assets/ready.jpg" alt="ready">
             <div class="popup-item-label">ready</div>
           </div>
 
-          <div class="popup-item" id="popup1-item4">
+          <div class="popup-item is-clickable" id="popup1-item4">
             <img src="assets/ec.jpg" alt="ec">
             <div class="popup-item-label">ec</div>
           </div>
@@ -352,7 +352,7 @@ content: attr(data-label);
     </div>
 
     <div class="tip">
-      popup1：第一张图点播 smbiu。第二张图第一次播 burst mode，再按一次播 bmbiu，循环。
+      popup1：第一张图播 smbiu；第二张图首次播 burst mode、再次播 bmbiu；第三张图播 ready；第四张图播 exceed charge。
     </div>
   </div>
 
@@ -458,6 +458,10 @@ content: attr(data-label);
   let modeTimer = null;
   let modeUsed = false;
 
+  // 变身后：点击顶层第 3 或第 4 圆形按钮播放 ready，
+  // 下一次按 ENTER 只播放 exceed charge。
+  let topReadyArmed = false;
+
   function interruptRing(){
     if(ringNode){
       stop(ringNode);
@@ -549,6 +553,14 @@ content: attr(data-label);
     interruptRing();
 
     if(transformed){
+      if(topReadyArmed){
+        play('exceed');
+        topReadyArmed = false;
+        readyOnce = false;
+        buf = '';
+        return;
+      }
+
       if(buf === '106'){
         play('enter');
         play('burstMode');
@@ -586,6 +598,7 @@ content: attr(data-label);
         armed = false;
         buf = '';
         clearModeGrant();
+        topReadyArmed = false;
       };
       if(s) s.onended = done;
       else setTimeout(done, 380);
@@ -647,6 +660,7 @@ content: attr(data-label);
       readyOnce = false;
       buf = '';
       clearModeGrant();
+      topReadyArmed = false;
     };
     if(s) s.onended = done;
     else done();
@@ -663,10 +677,39 @@ content: attr(data-label);
     });
   }
 
-  document.getElementById('btnTop1').addEventListener('click', () => showExclusivePopup('popup1'));
-  document.getElementById('btnTop2').addEventListener('click', () => showExclusivePopup('popup2'));
-  document.getElementById('btnTop3').addEventListener('click', () => showExclusivePopup('popup3'));
-  document.getElementById('btnTop4').addEventListener('click', () => showExclusivePopup('popup4'));
+  document.getElementById('btnTop1').addEventListener('click', () => {
+    showExclusivePopup('popup1');
+  });
+
+  document.getElementById('btnTop2').addEventListener('click', () => {
+    showExclusivePopup('popup2');
+  });
+
+  document.getElementById('btnTop3').addEventListener('click', async () => {
+    showExclusivePopup('popup3');
+
+    if(!transformed) return;
+
+    await ensureReady();
+    interruptRing();
+    play('ready');
+    topReadyArmed = true;
+    readyOnce = false;
+    buf = '';
+  });
+
+  document.getElementById('btnTop4').addEventListener('click', async () => {
+    showExclusivePopup('popup4');
+
+    if(!transformed) return;
+
+    await ensureReady();
+    interruptRing();
+    play('ready');
+    topReadyArmed = true;
+    readyOnce = false;
+    buf = '';
+  });
 
   document.getElementById('popup1-item1').addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -685,6 +728,18 @@ content: attr(data-label);
       play('bmbiu');
       popupBurstToggle = 0;
     }
+  });
+
+  document.getElementById('popup1-item3').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await ensureReady();
+    play('ready');
+  });
+
+  document.getElementById('popup1-item4').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    await ensureReady();
+    play('exceed');
   });
 
   document.querySelectorAll('.hit[data-k]').forEach(b => {
