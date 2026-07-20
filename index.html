@@ -768,7 +768,7 @@ content: attr(data-label);
     if(armed){
       stop(standNode);
       standNode = null;
-      const s = play('complete');
+
       const done = () => {
         transformed = true;
         readyOnce = false;
@@ -778,8 +778,27 @@ content: attr(data-label);
         topReadyArmed = false;
         saveState();
       };
-      if(s) s.onended = done;
-      else setTimeout(done, 380);
+
+      const playComplete = () => {
+        const completeNode = play('complete');
+
+        if(completeNode){
+          completeNode.onended = done;
+        }else{
+          setTimeout(done, 380);
+        }
+      };
+
+      // 第二次 ENTER：先播放 enter，再接 complete。
+      const enterNode = play('enter');
+
+      if(enterNode){
+        enterNode.onended = playComplete;
+      }else{
+        playComplete();
+      }
+
+      saveState();
       return;
     }
 
