@@ -387,14 +387,61 @@ content: attr(data-label);
 
   let popupBurstToggle = 0;
 
-  function ctx(){
-    if(ac) return ac;
+  function createAudioContext(){
     const C = window.AudioContext || window.webkitAudioContext;
+    if(!C) return null;
+
     ac = new C({ latencyHint:'interactive' });
     master = ac.createGain();
     master.gain.value = 1;
     master.connect(ac.destination);
     return ac;
+  }
+
+  function ctx(){
+    if(ac && ac.state !== 'closed') return ac;
+    return createAudioContext();
+  }
+
+  async function rebuildAudioContext(){
+    const oldContext = ac;
+
+    ac = null;
+    master = null;
+    ringNode = null;
+    standNode = null;
+
+    if(oldContext && oldContext.state !== 'closed'){
+      try{
+        await oldContext.close();
+      }catch{}
+    }
+
+    const newContext = ctx();
+    if(!newContext) return false;
+
+    try{
+      if(newContext.state !== 'running'){
+        await newContext.resume();
+      }
+    }catch{}
+
+    return newContext.state === 'running';
+  }
+
+  async function wakeAudio(){
+    let c = ctx();
+    if(!c) return false;
+
+    if(c.state === 'suspended' || c.state === 'interrupted'){
+      try{
+        await c.resume();
+      }catch{}
+    }
+
+    if(c.state === 'running') return true;
+
+    return await rebuildAudioContext();
   }
 
   async function resolveUrl(base){
@@ -428,8 +475,11 @@ content: attr(data-label);
 
   function play(key,{loop=false}={}){
     const b = buffers.get(key);
-    if(!b) return null;
-    const s = ctx().createBufferSource();
+    const c = ctx();
+
+    if(!b || !c || c.state !== 'running' || !master) return null;
+
+    const s = c.createBufferSource();
     s.buffer = b;
     s.loop = !!loop;
     s.connect(master);
@@ -462,6 +512,106 @@ content: attr(data-label);
   // 下一次按 ENTER 只播放 exceed charge。
   let topReadyArmed = false;
 
+  // iPhone 可能在后台回收整个网页进程。
+  // 用 localStorage 保存交互状态，重新载入后继续当前流程。
+  const STATE_KEY = 'kaixa-phone-interaction-state-v1';
+  let modeGrantExpiresAt = 0;
+  let restoringState = false;
+
+  function saveState(){
+    if(restoringState) return;
+
+    const state = {
+      buf,
+      transformed,
+      armed,
+      readyOnce,
+      modeAction,
+      modeRemaining,
+      modeUsed,
+      modeGrantExpiresAt,
+      topReadyArmed,
+      popupBurstToggle
+    };
+
+    try{
+      localStorage.setItem(STATE_KEY, JSON.stringify(state));
+    }catch{}
+  }
+
+  function restoreState(){
+    restoringState = true;
+
+    try{
+      const raw = localStorage.getItem(STATE_KEY);
+      if(!raw) return;
+
+      const state = JSON.parse(raw);
+
+      buf = typeof state.buf === 'string' ? state.buf.slice(-3) : '';
+      transformed = state.transformed === true;
+      armed = state.armed === true;
+      readyOnce = state.readyOnce === true;
+      topReadyArmed = state.topReadyArmed === true;
+      popupBurstToggle = state.popupBurstToggle === 1 ? 1 : 0;
+
+      modeAction =
+        state.modeAction === 'single' || state.modeAction === 'burst'
+          ? state.modeAction
+          : null;
+
+      modeRemaining =
+        Number.isFinite(state.modeRemaining) && state.modeRemaining > 0
+          ? Math.floor(state.modeRemaining)
+          : 0;
+
+      modeUsed = state.modeUsed === true;
+      modeGrantExpiresAt =
+        Number.isFinite(state.modeGrantExpiresAt)
+          ? state.modeGrantExpiresAt
+          : 0;
+
+      if(!modeAction || modeRemaining <= 0){
+        modeAction = null;
+        modeRemaining = 0;
+        modeUsed = false;
+        modeGrantExpiresAt = 0;
+      }else if(!modeUsed){
+        const remainingTime = modeGrantExpiresAt - Date.now();
+
+        if(remainingTime > 0){
+          modeTimer = setTimeout(() => {
+            if(!modeUsed){
+              clearModeGrant();
+            }
+          }, remainingTime);
+        }else{
+          modeAction = null;
+          modeRemaining = 0;
+          modeUsed = false;
+          modeGrantExpiresAt = 0;
+        }
+      }
+    }catch{
+      try{
+        localStorage.removeItem(STATE_KEY);
+      }catch{}
+    }finally{
+      restoringState = false;
+    }
+  }
+
+  function hasActiveInteractionState(){
+    return (
+      transformed ||
+      armed ||
+      readyOnce ||
+      topReadyArmed ||
+      buf.length > 0 ||
+      !!modeAction
+    );
+  }
+
   function interruptRing(){
     if(ringNode){
       stop(ringNode);
@@ -473,34 +623,51 @@ content: attr(data-label);
     modeAction = null;
     modeRemaining = 0;
     modeUsed = false;
+    modeGrantExpiresAt = 0;
+
     if(modeTimer){
       clearTimeout(modeTimer);
       modeTimer = null;
     }
+
+    saveState();
   }
 
   function grantMode(action, count){
     clearModeGrant();
+
     modeAction = action;
     modeRemaining = count;
     modeUsed = false;
+    modeGrantExpiresAt = Date.now() + 8000;
+
     modeTimer = setTimeout(() => {
       if(!modeUsed){
         clearModeGrant();
       }
     }, 8000);
+
+    saveState();
   }
 
   async function ensureReady(){
-    const c = ctx();
-    try{
-      if(c.state === 'suspended') await c.resume();
-    }catch{}
+    await wakeAudio();
 
     if(!audioReady){
-      await Promise.all(Object.keys(BASE).map(k => load(k).catch(()=>null)));
+      await Promise.all(
+        Object.keys(BASE).map(key => load(key).catch(() => null))
+      );
       audioReady = true;
     }
+
+    return await wakeAudio();
+  }
+
+  async function ensureActionAudio(){
+    // 正常首次使用仍由 OPEN 或弹框按钮初始化。
+    // 但如果是从后台进程恢复出的交互状态，则允许当前按钮自动重载音效。
+    if(!audioReady && !hasActiveInteractionState()) return false;
+    return await ensureReady();
   }
 
   async function onPower(){
@@ -510,7 +677,7 @@ content: attr(data-label);
   }
 
   async function onModeButton(){
-    if(!audioReady) return;
+    if(!await ensureActionAudio()) return;
     if(!transformed) return;
     if(!modeAction || modeRemaining <= 0) return;
 
@@ -520,6 +687,8 @@ content: attr(data-label);
         clearTimeout(modeTimer);
         modeTimer = null;
       }
+      modeGrantExpiresAt = 0;
+      saveState();
     }
 
     if(modeAction === 'burst'){
@@ -531,6 +700,8 @@ content: attr(data-label);
     modeRemaining -= 1;
     if(modeRemaining <= 0){
       clearModeGrant();
+    }else{
+      saveState();
     }
   }
 
@@ -541,15 +712,16 @@ content: attr(data-label);
     return 'key9';
   }
 
-  function pressDigit(k){
-    if(!audioReady) return;
+  async function pressDigit(k){
+    if(!await ensureActionAudio()) return;
     interruptRing();
     buf = (buf + k).slice(-3);
     play(getDigitSound(k));
+    saveState();
   }
 
-  function onEnter(){
-    if(!audioReady) return;
+  async function onEnter(){
+    if(!await ensureActionAudio()) return;
     interruptRing();
 
     if(transformed){
@@ -558,6 +730,7 @@ content: attr(data-label);
         topReadyArmed = false;
         readyOnce = false;
         buf = '';
+        saveState();
         return;
       }
 
@@ -566,6 +739,7 @@ content: attr(data-label);
         play('burstMode');
         grantMode('burst', 2);
         buf = '';
+        saveState();
         return;
       }
 
@@ -574,17 +748,20 @@ content: attr(data-label);
         play('singleMode');
         grantMode('single', 3);
         buf = '';
+        saveState();
         return;
       }
 
       if(!readyOnce){
         play('ready');
         readyOnce = true;
+        saveState();
         return;
       }
       play('enter');
       play('exceed');
       readyOnce = false;
+      saveState();
       return;
     }
 
@@ -599,6 +776,7 @@ content: attr(data-label);
         buf = '';
         clearModeGrant();
         topReadyArmed = false;
+        saveState();
       };
       if(s) s.onended = done;
       else setTimeout(done, 380);
@@ -612,6 +790,7 @@ content: attr(data-label);
       standNode = play('standBy');
       if(standNode) standNode.onended = () => standNode = null;
       armed = true;
+      saveState();
       return;
     }
 
@@ -620,19 +799,21 @@ content: attr(data-label);
       buf = '';
       armed = false;
       readyOnce = false;
+      saveState();
     }
   }
 
-  function onStar(){
-    if(!audioReady) return;
+  async function onStar(){
+    if(!await ensureActionAudio()) return;
     interruptRing();
     if(transformed) play('weaponHit');
     else play('key9');
     buf = (buf + '*').slice(-3);
+    saveState();
   }
 
-  function ringStart(){
-    if(!audioReady) return;
+  async function ringStart(){
+    if(!await ensureActionAudio()) return;
     interruptRing();
     ringNode = play('ring',{loop:true});
   }
@@ -642,13 +823,14 @@ content: attr(data-label);
     interruptRing();
   }
 
-  function onClear(){
-    if(!audioReady) return;
+  async function onClear(){
+    if(!await ensureActionAudio()) return;
     interruptRing();
 
     if(!transformed){
       play('key9');
       buf = '';
+      saveState();
       return;
     }
 
@@ -661,6 +843,7 @@ content: attr(data-label);
       buf = '';
       clearModeGrant();
       topReadyArmed = false;
+      saveState();
     };
     if(s) s.onended = done;
     else done();
@@ -728,6 +911,8 @@ content: attr(data-label);
       play('bmbiu');
       popupBurstToggle = 0;
     }
+
+    saveState();
   });
 
   document.getElementById('popup1-item3').addEventListener('click', async (e) => {
@@ -795,6 +980,32 @@ content: attr(data-label);
     setPopupItemRect(document.getElementById('popup1-item3'), 3);
     setPopupItemRect(document.getElementById('popup1-item4'), 4);
   }
+
+  restoreState();
+
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible'){
+      wakeAudio();
+    }else{
+      saveState();
+    }
+  });
+
+  window.addEventListener('pageshow', () => {
+    wakeAudio();
+  });
+
+  window.addEventListener('focus', () => {
+    wakeAudio();
+  });
+
+  window.addEventListener('pagehide', () => {
+    saveState();
+  });
+
+  window.addEventListener('beforeunload', () => {
+    saveState();
+  });
 
   window.addEventListener('load', place);
   window.addEventListener('resize', place);
