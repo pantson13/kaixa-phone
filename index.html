@@ -634,7 +634,6 @@ content: attr(data-label);
   let buf = '';
   let transformed = false;
   let armed = false;
-  let readyOnce = false;
 
   let modeAction = null;
   let modeRemaining = 0;
@@ -644,6 +643,10 @@ content: attr(data-label);
   // 顶层第 3 / 第 4 圆形按钮：
   // 变身后点击播放 ready，下一次 ENTER 播放 exceed。
   let topReadyArmed = false;
+
+  // Top1 弹窗第 3 个圆形按钮：
+  // 点击播放 ready，下一次 ENTER 先播放 enter，再播放 exceed。
+  let popupReadyArmed = false;
 
   // 保存交互状态，应对 iPhone 回收 PWA 页面进程。
   const STATE_KEY = 'kaixa-phone-interaction-state-v1';
@@ -657,12 +660,12 @@ content: attr(data-label);
       buf,
       transformed,
       armed,
-      readyOnce,
       modeAction,
       modeRemaining,
       modeUsed,
       modeGrantExpiresAt,
       topReadyArmed,
+      popupReadyArmed,
       popupBurstToggle
     };
 
@@ -686,8 +689,8 @@ content: attr(data-label);
 
       transformed = state.transformed === true;
       armed = state.armed === true;
-      readyOnce = state.readyOnce === true;
       topReadyArmed = state.topReadyArmed === true;
+      popupReadyArmed = state.popupReadyArmed === true;
       popupBurstToggle =
         state.popupBurstToggle === 1 ? 1 : 0;
 
@@ -844,13 +847,38 @@ content: attr(data-label);
   async function onEnter(){
     interruptRing();
 
+    /*
+     * Top1 弹窗第 3 个按钮已播放 ready 后：
+     * 下一次 ENTER 先播放 enter，播放结束后再播放 exceed。
+     * 该状态独立于 913、103、106 和 Top3 / Top4 逻辑。
+     */
+    if(popupReadyArmed){
+      if(!await prepareSounds(['enter','exceed'])) return;
+
+      popupReadyArmed = false;
+      saveState();
+
+      const playExceed = () => {
+        play('exceed');
+      };
+
+      const enterNode = play('enter');
+
+      if(enterNode){
+        enterNode.onended = playExceed;
+      }else{
+        playExceed();
+      }
+
+      return;
+    }
+
     if(transformed){
       if(topReadyArmed){
         if(!await prepareSounds(['exceed'])) return;
 
         play('exceed');
         topReadyArmed = false;
-        readyOnce = false;
         buf = '';
         saveState();
         return;
@@ -878,20 +906,16 @@ content: attr(data-label);
         return;
       }
 
-      if(!readyOnce){
-        if(!await prepareSounds(['ready'])) return;
-
-        play('ready');
-        readyOnce = true;
-        saveState();
-        return;
-      }
-
-      if(!await prepareSounds(['enter','exceed'])) return;
+      /*
+       * 已删除旧的：
+       * ENTER -> ready -> 再次 ENTER -> exceed
+       *
+       * 没有命中 103、106 或其他待执行状态时，
+       * ENTER 只播放自身按钮音效。
+       */
+      if(!await prepareSounds(['enter'])) return;
 
       play('enter');
-      play('exceed');
-      readyOnce = false;
       saveState();
       return;
     }
@@ -908,7 +932,6 @@ content: attr(data-label);
 
       const done = () => {
         transformed = true;
-        readyOnce = false;
         armed = false;
         buf = '';
         clearModeGrant();
@@ -973,7 +996,6 @@ content: attr(data-label);
       play('error');
       buf = '';
       armed = false;
-      readyOnce = false;
       saveState();
     }
   }
@@ -1023,7 +1045,6 @@ content: attr(data-label);
     const done = () => {
       transformed = false;
       armed = false;
-      readyOnce = false;
       buf = '';
       clearModeGrant();
       topReadyArmed = false;
@@ -1073,7 +1094,6 @@ content: attr(data-label);
       interruptRing();
       play('ready');
       topReadyArmed = true;
-      readyOnce = false;
       buf = '';
       saveState();
     });
@@ -1086,7 +1106,6 @@ content: attr(data-label);
       interruptRing();
       play('ready');
       topReadyArmed = true;
-      readyOnce = false;
       buf = '';
       saveState();
     });
@@ -1122,7 +1141,10 @@ content: attr(data-label);
       event.stopPropagation();
 
       if(!await prepareSounds(['ready'])) return;
+
       play('ready');
+      popupReadyArmed = true;
+      saveState();
     });
 
   document.getElementById('popup1-item4')

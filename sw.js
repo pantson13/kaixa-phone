@@ -8,7 +8,7 @@
   - 其他同源静态资源：缓存优先并后台更新。
 */
 
-const CACHE_NAME = 'kaixa-phone-runtime-v9';
+const CACHE_NAME = 'kaixa-phone-runtime-v11';
 
 const APP_SHELL = [
   './',
