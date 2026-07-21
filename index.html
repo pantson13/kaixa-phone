@@ -374,6 +374,7 @@ content: attr(data-label);
     error:      'assets/error.m4a',
     ready:      'assets/ready.m4a',
     exceed:     'assets/exceed charge.m4a',
+    kaixaEx2:   'assets/kaixa-ex2.m4a',
     release:    'assets/release.m4a',
     weaponHit:  'assets/weaponHit.m4a',
     burstMode:  'assets/burst mode.m4a',
@@ -397,6 +398,7 @@ content: attr(data-label);
     'release',
     'ready',
     'exceed',
+    'kaixaEx2',
     'error',
     'weaponHit',
     'singleMode',
@@ -1127,8 +1129,8 @@ content: attr(data-label);
     .addEventListener('click', async event => {
       event.stopPropagation();
 
-      if(!await prepareSounds(['exceed'])) return;
-      play('exceed');
+      if(!await prepareSounds(['kaixaEx2'])) return;
+      play('kaixaEx2');
     });
 
   document.querySelectorAll('.hit[data-k]')
